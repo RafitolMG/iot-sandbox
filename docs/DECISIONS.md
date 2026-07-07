@@ -289,6 +289,38 @@ solo-lectura del sistema (`/proc`, `/sys`, `/etc`, …); y el `sha256` de la mue
 **Impacto en el TFM:** fija el modelo relacional y la técnica de extracción de IoCs (Cap. 4.2.2)
 que se evalúan con malware real en CP-7.
 
+### ADR-019 — Frontend SPA: routing, cliente HTTP y estrategia de servido/proxy (CP-4) · ACEPTADA
+**Contexto:** CP-4 cierra el MVP con la SPA Vue 3 (ADR-003/009). Había que fijar la forma de
+navegación, el cliente HTTP, y —sobre todo— CÓMO se sirve la web y cómo alcanza a la API tanto en
+Docker como en desarrollo local, sin CORS.
+
+**Decisiones (firmes, MVP):**
+- **Framework/tooling:** **Vue 3.5.39** (Composition API, `<script setup>`) + **Vite 6.4.3** +
+  **vue-router 4.6.4**. Dos rutas: dashboard `/` (subida + listado) y reporte `/samples/:id`.
+  **Sin store global** (Pinia): el estado es local a cada vista (listado, reporte); el MVP no
+  justifica una capa de estado compartida. Gestor `npm` + `package-lock.json` (ADR-014), versiones
+  **fijadas exactas** (nada de `^`/`latest`).
+- **Cliente HTTP = `fetch` nativo** (sin axios). Menos dependencias que auditar/justificar y
+  suficiente para el contrato REST (multipart en `POST`, JSON en `GET`). Un módulo `src/api.js`
+  centraliza las llamadas y normaliza los errores (`ApiError` con `status` + `detail`), de modo que
+  la UI distingue 400 (arch/vacío), 413 (tamaño), 404 (id) y el flag `deduplicated`.
+- **Servido en producción = build estático + nginx (multi-stage), NO dev-server.** El Dockerfile
+  hace `vite build` con `node:22-bookworm-slim` (ADR-009) y sirve el bundle con `nginx:1.29-alpine`.
+  nginx **reverse-proxya** `/api/ → http://api:8000/`, dejando la SPA **same-origin (sin CORS)**; el
+  navegador solo habla con el puerto **5173**. En desarrollo (`npm run dev`) el proxy equivalente lo
+  provee el dev-server de Vite (`/api` → `http://localhost:8000`). El destino es configurable por
+  **`VITE_API_BASE`** (default `/api`). Alternativa descartada: `vite preview` (dev-server en prod,
+  sin proxy real ni caché/gzip; menos representativo para las capturas del TFM).
+- **Actualización de estado = polling** (no websockets). Listado y reporte reprograman un
+  `setTimeout` mientras haya muestras en `queued`/`running`; se detiene al `done`/`failed`. Simple,
+  robusto y suficiente para detonaciones de ~15 s. WebSockets/SSE quedan fuera del MVP.
+- **Healthcheck del contenedor frontend apunta a `127.0.0.1`** (no `localhost`): dentro de Alpine
+  `localhost` resuelve primero a `::1` (IPv6) y nginx (`listen 5173`) escucha solo en IPv4 →
+  `connection refused`. El acceso del host va por el puerto mapeado IPv4 y no se ve afectado.
+
+**Impacto en el TFM:** describe la capa de presentación y su integración con la API (Cap. 4.2.2);
+las capturas de la web para la memoria se obtienen de esta SPA.
+
 ---
 
 ## Cómo se conecta con la "memoria" del TFM

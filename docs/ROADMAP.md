@@ -2,13 +2,13 @@
 
 > Estado vivo del proyecto. Se actualiza al cerrar cada checkpoint.
 
-## Hito 1 — MVP end-to-end con ARM
+## Hito 1 — MVP end-to-end con ARM ✅ COMPLETO (2026-07-07)
 Flujo completo: subir binario ARM → QEMU-ARM full-system → telemetría → IoCs → web.
 - CP-0 Kickoff y andamiaje ✅
 - CP-1 Infraestructura levanta ✅
 - CP-2 Núcleo emulación ARM ✅
 - CP-3 API + cola + persistencia ✅
-- CP-4 Frontend (cierre del MVP) ⬜
+- CP-4 Frontend (cierre del MVP) ✅
 
 ## Hito 2 — Robustez y anti-evasión
 - CP-5 INetSim / red simulada ⬜

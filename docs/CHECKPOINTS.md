@@ -52,10 +52,11 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 - Verificable: subir el binario de prueba por API y recuperar el reporte con IoCs.
 - **PARA.** Revisión del contrato de API y del modelo de datos (importa para el Cap. 4).
 
-### CP-4 · Frontend
+### CP-4 · Frontend ✅ (MVP COMPLETO)
 - Vue 3: pantalla de subida de muestra + listado + vista de reporte (syscalls, red, ficheros, IoCs).
-- Verificable: flujo completo desde el navegador.
-- **PARA.** Revisión de UX y del flujo end-to-end del MVP (¡hito MVP completo!).
+- Verificable: flujo completo desde el navegador (SPA servida por nginx en `:5173`, que proxya
+  `/api` → API; verificado end-to-end vía `curl` con los 5 servicios levantados).
+- **PARA.** Revisión de UX y del flujo end-to-end del MVP (**¡hito MVP completo!**).
 
 ### CP-5 · Anti-evasión (INetSim)
 - Integrar simulación de servicios de red (DNS/HTTP) para que el binario crea tener conectividad.
@@ -81,7 +82,7 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 | CP-1 | Infraestructura levanta | ✅ Hecho (2026-07-07) |
 | CP-2 | Núcleo emulación ARM | ✅ Hecho (2026-07-07) |
 | CP-3 | API + cola + persistencia | ✅ Hecho (2026-07-07) |
-| CP-4 | Frontend (MVP completo) | ⬜ Pendiente |
+| CP-4 | Frontend (MVP completo) | ✅ Hecho (2026-07-07) — **🏁 Hito 1 / MVP COMPLETO** |
 | CP-5 | Anti-evasión INetSim | ⬜ Pendiente |
 | CP-6 | Multi-arquitectura | ⬜ Pendiente |
 | CP-7 | Evaluación malware real | ⬜ Pendiente |

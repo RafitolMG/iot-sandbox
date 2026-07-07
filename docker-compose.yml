@@ -114,15 +114,30 @@ services:
     networks: [sandbox_net]
     restart: unless-stopped
 
-  # --- Frontend (Vue 3 + Vite) — CP-4 (placeholder, no tocar en CP-1) -----
+  # --- Frontend (SPA Vue 3 + Vite, servida por nginx) — CP-4 ---------------
+  # Build multi-stage (docker/frontend.Dockerfile): `vite build` -> bundle estatico servido
+  # por nginx, que ademas reverse-proxya /api -> api:8000 (mismo origen, sin CORS).
   frontend:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
     image: iot-sandbox/frontend:dev
-    depends_on: [api]
+    depends_on:
+      # Espera a que la API este healthy: asi nginx resuelve el nombre `api` al arrancar
+      # (proxy_pass http://api:8000/ usa un hostname literal).
+      api:
+        condition: service_healthy
     ports:
-      - "5173:5173"          # servidor de desarrollo Vite (implementación en CP-4)
+      - "5173:5173"          # http://localhost:5173  (SPA + proxy /api)
+    healthcheck:
+      # busybox wget (incluido en nginx:alpine). Se usa 127.0.0.1 y NO localhost: dentro de
+      # Alpine `localhost` resuelve primero a ::1 (IPv6) y nginx escucha `listen 5173` solo en
+      # IPv4 -> connection refused. El acceso del host (puerto mapeado) va por IPv4 y funciona.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5173/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks: [sandbox_net]
     restart: unless-stopped
 

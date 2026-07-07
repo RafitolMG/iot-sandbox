@@ -12,11 +12,14 @@ despliega con **Docker Compose**.
 
 ## Estado
 
-**CP-0 — Kickoff y andamiaje (hecho).** Este repositorio contiene, por ahora, solo la
-**estructura del monorepo, la documentación de gobierno y un `docker-compose.yml`
-esqueleto**. Todavía **no hay lógica de negocio**: la infraestructura ejecutable llega
-en CP-1. Ver el estado de los checkpoints en [`docs/CHECKPOINTS.md`](docs/CHECKPOINTS.md)
-y la bitácora en [`docs/DEV_LOG.md`](docs/DEV_LOG.md).
+**🏁 Hito 1 — MVP end-to-end (ARM) COMPLETO (CP-0 → CP-4).** Flujo completo operativo:
+subir un binario ARM desde la web → detonación en QEMU full-system → captura de telemetría
+(syscalls / red / ficheros) → extracción de IoCs → persistencia → **reporte forense en el
+navegador**. Todo se levanta con `docker compose up`. Ver el estado de los checkpoints en
+[`docs/CHECKPOINTS.md`](docs/CHECKPOINTS.md) y la bitácora en [`docs/DEV_LOG.md`](docs/DEV_LOG.md).
+
+Fuera del MVP (siguientes hitos): CP-5 anti-evasión (INetSim), CP-6 multi-arquitectura
+(MIPS/MIPSEL/x86_64), CP-7 evaluación con malware real.
 
 ## Aviso de seguridad
 
@@ -35,36 +38,46 @@ navegador ─▶ Frontend (Vue 3) ─▶ API (FastAPI) ─┬─▶ PostgreSQL
 
 Detalle en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Cómo se levantará (a partir de CP-1)
+## Cómo se levanta
 
 ```bash
-cp .env.example .env      # ajustar credenciales locales
-docker compose up --build
+cp .env.example .env      # ajustar credenciales locales (opcional; hay defaults)
+docker compose up --build # levanta db, valkey, api, worker y frontend
 ```
+
+Cuando los 5 servicios estén `healthy` (`docker compose ps`), **abre la web en
+http://localhost:5173**: sube el binario benigno de prueba
+(`emulation/arm/overlay/opt/sample/test_sample`, arch ARM), obsérvalo pasar de *En cola* →
+*Analizando* → *Completado* (auto-refresco) y pincha en la muestra para ver el reporte forense
+(cabecera + contadores + IoCs + pestañas Red/Syscalls/Ficheros).
+
+> La primera detonación requiere la imagen de emulación `iot-sandbox/emulation:dev` y los
+> artefactos de kernel/rootfs (`emulation/arm/_build/images/`), generados en CP-2 con
+> `emulation/arm/build_rootfs.sh`.
 
 Servicios y puertos declarados en `docker-compose.yml`:
 
-| Servicio  | Tecnología             | Puerto host |
-|-----------|------------------------|-------------|
-| api       | FastAPI (Python 3.12)  | 8000        |
-| frontend  | Vue 3 + Vite           | 5173        |
-| db        | PostgreSQL             | 5432        |
-| redis     | Redis (broker Celery)  | 6379        |
-| worker    | Celery + QEMU          | —           |
+| Servicio  | Tecnología                        | Puerto host |
+|-----------|-----------------------------------|-------------|
+| frontend  | Vue 3 + Vite (servida por nginx)  | 5173        |
+| api       | FastAPI (Python 3.12)             | 8000        |
+| db        | PostgreSQL 16                     | 5432        |
+| valkey    | Valkey 8 (broker Celery, BSD)     | 6379        |
+| worker    | Celery + QEMU (DooD)              | —           |
 
-> En CP-0 los servicios apuntan a Dockerfiles/imágenes base **placeholder**. No ejecutes
-> `docker compose up` todavía: no hará nada útil hasta CP-1.
+El frontend (nginx) reverse-proxya `/api` → `api:8000`, así que el navegador solo usa el
+puerto **5173** (SPA *same-origin*, sin CORS).
 
 ## Estructura del repositorio
 
 ```
 iot-sandbox/
-├── backend/            # API REST (FastAPI, Python 3.12)          [andamiaje]
-├── worker/             # Celery worker + orquestación de QEMU     [andamiaje]
-├── frontend/           # SPA Vue 3 + Vite                         [andamiaje]
+├── backend/            # API REST (FastAPI, Python 3.12)          [CP-1/CP-3 ✅]
+├── worker/             # Celery worker + orquestación de QEMU     [CP-2/CP-3 ✅]
+├── frontend/           # SPA Vue 3 + Vite                         [CP-4 ✅]
 ├── emulation/          # Perfiles y scripts QEMU por ISA
-│   └── arm/            #   ARM primero (MVP)                      [andamiaje]
-├── docker/             # Dockerfiles de los servicios             [placeholder]
+│   └── arm/            #   ARM primero (MVP)                      [CP-2 ✅]
+├── docker/             # Dockerfiles de los servicios             [✅]
 ├── docs/               # Documentación de gobierno del proyecto
 │   ├── PROJECT_BRIEF.md   # el encargo (fuente de verdad)
 │   ├── DECISIONS.md       # registro de decisiones (ADR)

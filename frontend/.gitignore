@@ -1,0 +1,7 @@
+# Node / Vite build artefacts (see repo-root .gitignore too).
+node_modules/
+dist/
+*.local
+.env
+.vite/
+npm-debug.log*

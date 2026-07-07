@@ -254,3 +254,83 @@ apartado de limitaciones del TFM.
 
 **Siguiente:** CP-4 — frontend Vue 3 (subida + listado + vista de reporte). El contrato REST
 (`POST/GET /samples`) y el modelo de datos ya están cerrados.
+
+---
+
+## CP-4 · Frontend Vue 3 — cierre del MVP — 2026-07-07
+
+**Hecho:**
+- **SPA Vue 3 + Vite** en `frontend/` (Composition API, `<script setup>`, ADR-003/009/019).
+  Versiones **fijadas**: `vue 3.5.39`, `vue-router 4.6.4`, `vite 6.4.3`, `@vitejs/plugin-vue 5.2.4`
+  (+ `package-lock.json`). Cliente HTTP con **`fetch` nativo** (sin axios); `src/api.js` centraliza
+  las 4 llamadas del contrato y normaliza errores (`ApiError` con `status`+`detail`).
+- **Dos vistas (vue-router):**
+  - `HomeView` (`/`): panel **Subir muestra** (`UploadForm`) + tabla de **Muestras** (`SampleTable`).
+    Maneja los 3 resultados de `POST /samples` (aceptada 202, `deduplicated:true`, error 400/413) y
+    **polla** `GET /samples` cada 3,5 s mientras haya `queued`/`running`.
+  - `ReportView` (`/samples/:id`): reporte forense de `GET /samples/{id}` — cabecera (filename,
+    sha256, arch, tiempos, duración), 4 contadores, **IoCs destacados** (agrupados por tipo, con
+    color por tipo y `source`), y pestañas **Red / Syscalls / Ficheros**. Estados: banner "en
+    análisis" con auto-refresco si `queued`/`running`; bloque de error si `failed`; página 404 si el
+    id no existe.
+  - Componentes: `StatusBadge` (queued/running/done/failed), `UploadForm`, `SampleTable`;
+    helpers en `format.js`; estilos en `assets/styles.css` (tema oscuro sobrio tipo consola forense).
+- **Servido + proxy (ADR-019):** `docker/frontend.Dockerfile` **multi-stage** — `vite build` con
+  `node:22-bookworm-slim` → bundle estático servido por **`nginx:1.29-alpine`**. nginx
+  **reverse-proxya** `/api/ → http://api:8000/` (SPA **same-origin, sin CORS**) y hace history
+  fallback a `index.html` (deep-links de vue-router). Config en `frontend/nginx.conf`
+  (`client_max_body_size 64m` para igualar el límite de subida de la API, gzip). En dev el mismo
+  `/api` lo proxya el dev-server de Vite (`vite.config.js`). Base configurable por `VITE_API_BASE`.
+- **Compose:** servicio `frontend` cableado (deja de ser placeholder) — `depends_on api: healthy`
+  (para que nginx resuelva `api` al arrancar), puerto `5173:5173`, healthcheck busybox `wget` a
+  **`127.0.0.1`** (no `localhost`: Alpine resuelve `::1` y nginx escucha IPv4). Resto de servicios
+  intactos.
+
+**Cómo verificar (con TODOS los servicios levantados):**
+```bash
+cd ~/Proyectos/iot-sandbox
+docker compose build frontend
+docker compose up -d                       # db, valkey, api, worker, frontend (todos healthy)
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5173/          # 200 (SPA HTML)
+curl -s http://localhost:5173/api/health                                 # {"status":"ok"} (via proxy)
+curl -s http://localhost:5173/api/samples                                # [] o listado
+# flujo completo a través del proxy del frontend (mismo binario benigno de CP-3):
+SID=$(curl -s -F "file=@emulation/arm/overlay/opt/sample/test_sample" -F arch=arm \
+        http://localhost:5173/api/samples | python3 -c 'import sys,json;print(json.load(sys.stdin)["sample_id"])')
+until [ "$(curl -s http://localhost:5173/api/samples/$SID | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')" = done ]; do sleep 3; done
+curl -s http://localhost:5173/api/samples/$SID | python3 -m json.tool
+docker compose down
+```
+
+**Funciona / No funciona (verificado REAL, stack completo):**
+- **Build de Vite OK** (Docker, dentro de `node:22`): `33 modules transformed`,
+  `dist/assets/index-*.js 109.69 kB (gzip 42 kB)`, `dist/assets/index-*.css 8.14 kB`. Imagen
+  `iot-sandbox/frontend:dev` construida.
+- **Los 5 servicios healthy** (`db, valkey, api, worker, frontend`).
+- **Frontend sirve la SPA:** `GET http://localhost:5173/` → HTTP 200 (`nginx/1.29.8`, `<div id="app">`
+  + `<script type="module" src="/assets/index-*.js">`); el JS hasheado se sirve (109 689 B,
+  `application/javascript`); deep-link `/samples/1` → 200 `text/html` (history fallback OK).
+- **API a través del proxy:** `/api/health` → `{"status":"ok"}`; `/api/samples` → listado (200).
+- **Pipeline CP-3 intacto a través del proxy del frontend:** subida multipart a
+  `POST :5173/api/samples` → `queued→running→done` (~15 s vía DooD/QEMU) → `GET :5173/api/samples/1`:
+  `counts={syscalls:78, network_flows:5, fs_events:4, iocs:5}`; IoCs = `domain
+  c2.sandbox-test.example` · `ip 198.51.100.23` · `port 4444` · `file /tmp/iot_sandbox_marker.txt` ·
+  `hash d4d738c8…d5a5` (idéntico a CP-3). Casos límite por el proxy: `deduplicated:true`,
+  `mips`→400, fichero vacío→400, id 999→404.
+- `docker compose down` ejecutado; **sin contenedores/red residuales**.
+
+**Cómo abre Rafael la web (para capturas del TFM):**
+1. `docker compose up -d --build` (o `docker compose up`).
+2. Esperar a que los 5 servicios estén `healthy` (`docker compose ps`).
+3. Abrir **http://localhost:5173** en el navegador. Dashboard: subir
+   `emulation/arm/overlay/opt/sample/test_sample` (arch ARM) → aparece en la tabla y pasa a
+   *Analizando* → *Completado* (auto-refresco). Click en la fila / “Ver reporte” →
+   `http://localhost:5173/samples/<id>`: cabecera + contadores + **IoCs** + pestañas Red/Syscalls/
+   Ficheros. Todo apto para capturas.
+
+**Decisiones abiertas (→ DECISIONS.md):** **ADR-019** (routing + fetch nativo + servido nginx con
+proxy `/api` + polling) registrada como **ACEPTADA** (micro-decisión de implementación de frontend,
+sin bifurcación que requiera revisión humana). Sin decisiones humanas pendientes.
+
+**Siguiente:** **MVP (Hito 1) COMPLETO.** Fuera del MVP quedan CP-5 (anti-evasión / INetSim),
+CP-6 (multi-arquitectura MIPS/MIPSEL/x86_64) y CP-7 (evaluación con malware real).
