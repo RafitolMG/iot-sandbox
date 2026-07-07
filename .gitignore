@@ -56,6 +56,7 @@ fs_events.log
 *.cpio
 *.cpio.gz
 *.squashfs
+*.dtb
 zImage
 bzImage
 vmlinuz*
@@ -63,6 +64,10 @@ initramfs*
 emulation/**/output/
 emulation/**/downloads/
 emulation/**/dl/
+# Árbol de build de la sandbox ARM (Buildroot, imágenes, artefactos; se generan)
+emulation/arm/_build/
+# Binario de prueba compilado que se inyecta en el overlay del rootfs
+emulation/arm/overlay/opt/sample/test_sample
 
 # --- Docker / build -------------------------------------------------------
 *.pid

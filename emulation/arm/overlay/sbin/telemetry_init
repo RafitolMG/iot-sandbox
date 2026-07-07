@@ -1,0 +1,104 @@
+#!/bin/sh
+# ============================================================================
+# telemetry_init — PID 1 dentro del invitado QEMU (IoT sandbox ARM, CP-2)
+# ============================================================================
+# Se arranca vía `init=/sbin/telemetry_init` en la línea de comandos del kernel,
+# SUSTITUYENDO al init de BusyBox. Orquesta, de forma no interactiva y
+# determinista, la ejecución telemetrizada del binario benigno de prueba:
+#
+#   1. Monta los pseudo-FS y una tmpfs en /tmp.
+#   2. Levanta la red del invitado (SLIRP 10.0.2.0/24).
+#   3. Arranca las 3 sondas de telemetría:
+#         - tcpdump      -> /telemetry/capture.pcap   (red)
+#         - inotifywait  -> /telemetry/fs_events.log  (ficheros)
+#         - strace       -> /telemetry/strace.log     (syscalls del binario)
+#   4. Ejecuta el binario de prueba bajo strace.
+#   5. Cierra sondas, sincroniza y APAGA QEMU limpiamente.
+#
+# Los artefactos se escriben en /telemetry (un directorio del propio rootfs, que
+# el host extrae después con debugfs sin montar la imagen). Todo mensaje va a la
+# consola serie para depuración.
+# ============================================================================
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+SAMPLE=/opt/sample/test_sample
+TELDIR=/telemetry
+
+log() { echo "[telemetry_init] $*"; }
+
+log "=== arranque de la sandbox de telemetria (PID $$) ==="
+
+# --- 1. pseudo-FS y almacenamiento efimero -------------------------------
+mount -t proc     proc     /proc        2>/dev/null
+mount -t sysfs    sysfs    /sys         2>/dev/null
+mount -t devtmpfs devtmpfs /dev         2>/dev/null   # normalmente ya montado por el kernel
+mkdir -p /dev/pts && mount -t devpts devpts /dev/pts  2>/dev/null
+mount -t tmpfs    tmpfs    /tmp         2>/dev/null
+mkdir -p "$TELDIR"
+
+# --- 2. red del invitado (QEMU user/SLIRP: 10.0.2.15, gw 10.0.2.2) --------
+log "configurando red (10.0.2.15/24, gw 10.0.2.2)"
+if command -v ip >/dev/null 2>&1; then
+    ip link set lo up
+    ip link set eth0 up
+    ip addr add 10.0.2.15/24 dev eth0
+    ip route add default via 10.0.2.2
+else
+    ifconfig lo up
+    ifconfig eth0 10.0.2.15 netmask 255.255.255.0 up
+    route add default gw 10.0.2.2
+fi
+echo "nameserver 10.0.2.3" > /etc/resolv.conf
+
+# --- 3. sondas de telemetria ---------------------------------------------
+log "iniciando tcpdump -> $TELDIR/capture.pcap"
+tcpdump -i any -U -s 0 -w "$TELDIR/capture.pcap" 2>"$TELDIR/tcpdump.stderr" &
+TCPDUMP_PID=$!
+
+log "iniciando inotifywait -> $TELDIR/fs_events.log (vigilando /tmp /etc /root)"
+inotifywait -m -r \
+    -e create -e modify -e delete -e attrib -e moved_to -e close_write \
+    --timefmt '%Y-%m-%dT%H:%M:%S' --format '%T %e %w%f' \
+    -o "$TELDIR/fs_events.log" \
+    /tmp /etc /root 2>"$TELDIR/inotify.stderr" &
+INOTIFY_PID=$!
+
+# Dar tiempo a que las sondas estén realmente escuchando/capturando.
+sleep 3
+
+# --- 4. ejecucion del binario de prueba bajo strace ----------------------
+if [ -x "$SAMPLE" ]; then
+    log "ejecutando muestra bajo strace: $SAMPLE"
+    strace -f -tt -T -o "$TELDIR/strace.log" "$SAMPLE" \
+        >"$TELDIR/sample.stdout" 2>"$TELDIR/sample.stderr"
+    log "la muestra termino (rc=$?)"
+else
+    log "ERROR: no existe/es ejecutable $SAMPLE"
+fi
+
+# --- 5. cierre de sondas, flush y apagado limpio -------------------------
+sleep 3                                   # margen para que tcpdump/inotify vuelquen
+log "deteniendo sondas de telemetria"
+kill -INT "$TCPDUMP_PID" 2>/dev/null      # SIGINT: tcpdump cierra el pcap correctamente
+kill "$INOTIFY_PID"      2>/dev/null
+sleep 2
+sync
+
+# Resumen en consola (útil en el log serie del host)
+log "artefactos en $TELDIR:"
+ls -l "$TELDIR" 2>/dev/null
+
+# Dejar el rootfs consistente para la extraccion por debugfs desde el host.
+mount -o remount,ro / 2>/dev/null
+sync
+
+log "=== apagando QEMU ==="
+# vexpress-a9 no ofrece power-off fiable, pero QEMU se arranca con -no-reboot:
+# un reboot forzado (reboot(2), no requiere CONFIG_MAGIC_SYSRQ) resetea la maquina
+# y hace que QEMU salga limpiamente. Respaldos: poweroff y SysRq.
+reboot -f 2>/dev/null                       # RB_AUTOBOOT -> con -no-reboot QEMU sale
+poweroff -f 2>/dev/null
+echo b > /proc/sysrq-trigger 2>/dev/null    # SysRq reboot (si esta compilado)
+echo o > /proc/sysrq-trigger 2>/dev/null    # SysRq power-off
+# Último recurso: no dejar PID1 vivo colgando (el host tiene ademas un timeout).
+while : ; do reboot -f 2>/dev/null; sleep 2; done

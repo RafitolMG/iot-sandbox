@@ -126,8 +126,9 @@ C) imagen prehecha de terceros (p. ej. `qemu` sample images) — rápida pero op
 reproducible.
 **Recomendación:** A (Buildroot 2024.02 LTS) por tamaño, reproducibilidad y
 control fino de la telemetría; se documenta el `defconfig` para la memoria.
-**⚠ A confirmar en CP-2:** ARM soft-float vs hard-float (armel/armhf) y el par
-máquina+kernel, que dependen del binario de prueba y de las muestras reales previstas.
+**✔ Confirmado en CP-2 (ver ADR-016):** ARM **hard-float (armhf, EABIhf)**, máquina
+`-M vexpress-a9` (Cortex-A9 / ARMv7-A), kernel `zImage` 6.1.44 + rootfs `rootfs.ext2`
+generados con Buildroot 2024.02.11.
 **Impacto en el TFM:** núcleo de la sección de implementación (Cap. 4.2.2) y de la
 reproducibilidad.
 
@@ -166,6 +167,49 @@ aplica el esquema de BD, sin que estuviera detallado en ADRs previos.
   API→Valkey→worker→`"pong"`. Es síncrono a propósito (FastAPI lo corre en threadpool, el
   `.get()` bloqueante no congela el event loop). **Se retira en CP-3** al llegar el flujo real.
 **Impacto en el TFM:** describe la capa de aplicación y el arranque reproducible (Cap. 4.2.2).
+
+### ADR-016 — Enfoque final del rootfs ARM y cierre del par máquina/kernel/ISA (CP-2) · ACEPTADA
+**(enmienda que CIERRA ADR-013 y corrige ADR-012)**
+
+**Contexto:** CP-2 debía fijar el tooling del rootfs (ADR-013), el par máquina/kernel/ISA y
+el entorno QEMU (ADR-012). Se fijaron y se verificaron con una detonación real del binario
+benigno de prueba (los 3 artefactos se generan con contenido real).
+
+**Decisiones (firmes, MVP):**
+- **Rootfs = Buildroot (opción A de ADR-013), confirmado como enfoque PRIMARIO.** No hizo
+  falta el fallback. Buildroot **2024.02.11 LTS** + defconfig oficial
+  `qemu_arm_vexpress_defconfig` + fragmento `emulation/arm/buildroot/telemetry.fragment`
+  (añade `strace`, `tcpdump`, `inotify-tools` y un rootfs-overlay con el binario de prueba y
+  `/sbin/telemetry_init`). Reproducible: Buildroot auto-construye sus host-tools
+  (m4/bison/flex…) pinneados, sin depender de versiones del host; los tarballs se cachean en
+  `emulation/arm/_build/dl`.
+- **Par máquina / kernel / ISA (CIERRA ADR-013):**
+  - Máquina: **`-M vexpress-a9`** (ARM Versatile Express), CPU **Cortex-A9 / ARMv7-A**.
+  - ISA/ABI del invitado: **armhf** — `BR2_ARM_EABIHF` (hard-float), `VFPv3-D16`, set de
+    instrucciones ARM, **glibc** (`BR2_TOOLCHAIN_BUILDROOT_GLIBC`).
+  - Kernel: **`zImage` Linux 6.1.44** + DTB `vexpress-v2p-ca9.dtb`.
+  - Rootfs: `rootfs.ext2` como tarjeta SD → `/dev/mmcblk0` (tamaño se ajusta a 256 MiB,
+    potencia de 2, en tiempo de arranque; requisito de la SD de vexpress-a9).
+  - Binario de prueba: `arm-linux-gnueabihf-gcc -static` (ARMv7-A hard-float); estático →
+    corre en el invitado con independencia de su libc.
+- **Corrección de ADR-012 (versión de QEMU):** Debian 13 «trixie» empaqueta
+  **`qemu-system-arm` 10.0.8** (no 9.2). Se adopta 10.0.8 vía apt (más reciente, igualmente
+  reproducible). Sin impacto funcional.
+- **Entorno de build+run:** todo en el contenedor `iot-sandbox/emulation:dev`
+  (`docker/emulation.Dockerfile`, Debian 13). No muta el host ni requiere `sudo`. QEMU
+  cross-ISA usa **TCG** (sin KVM) → sin privilegios elevados.
+- **Extracción de artefactos:** el invitado los escribe en `/telemetry` (en el propio ext2) y
+  el host los lee con **`debugfs` SIN montar** la imagen (sin privilegios). Alternativa a 9p,
+  elegida por robustez (no depende de drivers 9p en el kernel de la placa).
+- **Apagado limpio:** el invitado hace `reboot -f` con QEMU `-no-reboot` (sale con rc=0);
+  `run_emulation.sh` añade un timeout de seguridad. No quedan procesos/contenedores colgando.
+
+**Aislamiento de red (matiz):** en CP-2 se deja SLIRP normal para GARANTIZAR que el intento
+de red del binario quede capturado (contacta IPs/dominios de documentación RFC5737/RFC2606).
+El aislamiento pleno (`restrict=on` / INetSim) es **CP-5**; activable ya con
+`SANDBOX_NET_RESTRICT=1`.
+
+**Impacto en el TFM:** cierra el núcleo de la implementación (Cap. 4.2.2) y su reproducibilidad.
 
 ---
 

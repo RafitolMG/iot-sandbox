@@ -1,0 +1,21 @@
+# telemetry.fragment — Añadidos de Buildroot sobre `qemu_arm_vexpress_defconfig` (CP-2)
+# ---------------------------------------------------------------------------------
+# Se fusiona sobre el defconfig oficial de QEMU-ARM (vexpress-a9) con:
+#     make qemu_arm_vexpress_defconfig
+#     cat telemetry.fragment >> .config && make olddefconfig
+#
+# Objetivo: añadir SOLO las 3 herramientas de telemetría del invitado + un overlay
+# de rootfs con el binario de prueba y el init de telemetría, manteniendo el resto
+# del rootfs mínimo y reproducible (ADR-013).
+
+# --- Sondas de telemetría dentro del invitado ---
+BR2_PACKAGE_STRACE=y
+BR2_PACKAGE_TCPDUMP=y
+BR2_PACKAGE_INOTIFY_TOOLS=y
+
+# --- Overlay de rootfs: inyecta /sbin/telemetry_init y /opt/sample/test_sample ---
+# Ruta ABSOLUTA dentro del contenedor de build (el repo se monta en /project).
+BR2_ROOTFS_OVERLAY="/project/emulation/arm/overlay"
+
+# --- Imagen ext2 con holgura para los artefactos (pcap/strace/logs) ---
+BR2_TARGET_ROOTFS_EXT2_SIZE="200M"
