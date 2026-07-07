@@ -1,0 +1,107 @@
+# docker-compose.yml — IoT Malware Dynamic Analysis Sandbox
+# ─────────────────────────────────────────────────────────────────────────
+# ESQUELETO (CP-0): declara los servicios, imágenes base y puertos.
+# NO contiene lógica de negocio todavía. NO ejecutar `docker compose up` en CP-0
+# (los servicios api/worker/frontend apuntan a Dockerfiles PLACEHOLDER).
+# Versiones exactas: propuestas en docs/DECISIONS.md (ADR-007..ADR-014, PROPUESTA).
+# Formato: Compose Spec (sin clave `version:` — obsoleta desde Compose v2).
+# ─────────────────────────────────────────────────────────────────────────
+
+name: iot-sandbox
+
+services:
+  # --- API REST (FastAPI) — CP-1 (/health), CP-3 (POST /samples) ----------
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: iot-sandbox/api:dev
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://sandbox:sandbox@db:5432/sandbox}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    ports:
+      - "8000:8000"          # http://localhost:8000  (endpoint /health llega en CP-1)
+    volumes:
+      - sample_storage:/data/samples      # binarios subidos (tratados como NO confiables)
+    networks: [sandbox_net]
+    restart: unless-stopped
+
+  # --- Worker de análisis (Celery + QEMU full-system) — CP-1/CP-2 ---------
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    image: iot-sandbox/worker:dev
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://sandbox:sandbox@db:5432/sandbox}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    volumes:
+      - sample_storage:/data/samples:ro   # lee la muestra (solo lectura)
+      - artifacts:/data/artifacts         # strace.log, capture.pcap, fs_events.log
+    # NOTA de seguridad: la emulación cross-ISA (ARM sobre host x86) usa TCG, NO KVM,
+    # por lo que el worker NO necesita /dev/kvm ni privilegios elevados (ver CP-2).
+    networks: [sandbox_net]
+    restart: unless-stopped
+
+  # --- Base de datos (PostgreSQL) — ADR-010 -------------------------------
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sandbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sandbox}
+      POSTGRES_DB: ${POSTGRES_DB:-sandbox}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sandbox} -d ${POSTGRES_DB:-sandbox}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [sandbox_net]
+    restart: unless-stopped
+
+  # --- Broker / cola (Redis) — ADR-011 (decisión de licencia ABIERTA) -----
+  redis:
+    image: redis:7.2-alpine        # ver ADR-011: elección de broker/licencia pendiente
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [sandbox_net]
+    restart: unless-stopped
+
+  # --- Frontend (Vue 3 + Vite) — CP-4 -------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    image: iot-sandbox/frontend:dev
+    depends_on: [api]
+    ports:
+      - "5173:5173"          # servidor de desarrollo Vite (implementación en CP-4)
+    networks: [sandbox_net]
+    restart: unless-stopped
+
+volumes:
+  pgdata:          # datos persistentes de PostgreSQL
+  sample_storage:  # binarios de muestra subidos por la API, leídos por el worker
+  artifacts:       # artefactos forenses producidos por el worker (pcap, logs)
+
+networks:
+  sandbox_net:
+    driver: bridge
