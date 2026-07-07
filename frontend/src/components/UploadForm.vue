@@ -8,17 +8,18 @@ import { humanBytes } from '../format'
 
 const emit = defineEmits(['uploaded'])
 
-// Only ARM is accepted by the backend today (settings.supported_arches). Others are declared
-// but disabled so the roadmap is visible without letting the user hit a guaranteed 400.
+// Multi-arquitectura (CP-6): el backend autodetecta la ISA por la cabecera ELF, o se
+// puede forzar. Todas tienen perfil QEMU (emulation/profiles/<arch>.env).
 const ARCHES = [
-  { value: 'arm', label: 'ARM (armhf / Cortex-A9)', enabled: true },
-  { value: 'mips', label: 'MIPS — próximamente (CP-6)', enabled: false },
-  { value: 'mipsel', label: 'MIPSEL — próximamente (CP-6)', enabled: false },
-  { value: 'x86_64', label: 'x86-64 — próximamente (CP-6)', enabled: false },
+  { value: 'auto', label: 'Detección automática (ELF)', enabled: true },
+  { value: 'arm', label: 'ARM (armhf / Cortex-A9 · vexpress-a9)', enabled: true },
+  { value: 'mips', label: 'MIPS (32r2 big-endian · malta)', enabled: true },
+  { value: 'mipsel', label: 'MIPSEL (32r2 little-endian · malta)', enabled: true },
+  { value: 'x86_64', label: 'x86-64 (pc / virtio)', enabled: true },
 ]
 
 const file = ref(null)
-const arch = ref('arm')
+const arch = ref('auto')
 const busy = ref(false)
 const result = ref(null) // { kind: 'ok'|'dedup', sample_id, sha256 }
 const error = ref(null) // string

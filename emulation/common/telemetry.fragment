@@ -1,0 +1,20 @@
+# common/telemetry.fragment — Añadidos de Buildroot COMPARTIDOS por todas las ISAs (CP-6)
+# ---------------------------------------------------------------------------------
+# emulation/build_rootfs.sh lo fusiona sobre el defconfig oficial de cada perfil:
+#     make <P_BR_DEFCONFIG>
+#     cat common/telemetry.fragment >> .config
+#     # + BR2_ROOTFS_OVERLAY generado (overlay común + sample-overlay por ISA)
+#     make olddefconfig
+#
+# Objetivo: añadir SOLO las 3 sondas de telemetría del invitado y holgura en el ext2
+# para los artefactos, manteniendo el rootfs mínimo y reproducible (ADR-013/ADR-020).
+# Los overlays (telemetry_init compartido + binario de prueba compilado por ISA) los
+# inyecta build_rootfs.sh vía BR2_ROOTFS_OVERLAY, NO este fichero (así es arch-agnóstico).
+
+# --- Sondas de telemetría dentro del invitado ---
+BR2_PACKAGE_STRACE=y
+BR2_PACKAGE_TCPDUMP=y
+BR2_PACKAGE_INOTIFY_TOOLS=y
+
+# --- Imagen ext2 con holgura para los artefactos (pcap/strace/logs) ---
+BR2_TARGET_ROOTFS_EXT2_SIZE="200M"

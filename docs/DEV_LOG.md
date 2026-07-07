@@ -334,3 +334,100 @@ sin bifurcación que requiera revisión humana). Sin decisiones humanas pendient
 
 **Siguiente:** **MVP (Hito 1) COMPLETO.** Fuera del MVP quedan CP-5 (anti-evasión / INetSim),
 CP-6 (multi-arquitectura MIPS/MIPSEL/x86_64) y CP-7 (evaluación con malware real).
+
+---
+
+## CP-6 · Generalización multi-arquitectura — 2026-07-07
+
+**Hecho:**
+- **Refactor a registro de perfiles por ISA (ADR-020).** Los scripts específicos de ARM se
+  sustituyen por **dos genéricos** `emulation/{build_rootfs,run_emulation}.sh <arch>` dirigidos
+  por `emulation/profiles/<arch>.env` (declara defconfig, toolchain+cflags, binario/máquina QEMU,
+  kernel/DTB, disco/raíz, consola, NIC, resize y mapeo ELF). Todo lo arch-agnóstico se comparte en
+  `emulation/common/` (`overlay/sbin/telemetry_init`, `testbin/test_sample.c`, `telemetry.fragment`);
+  el binario de prueba se cross-compila estático por ISA en un `sample-overlay` y Buildroot funde
+  ambos overlays. **ARM = primer entry**: su kernel+rootfs de CP-2 se reutilizan sin recompilar
+  (regresión OK con el script genérico). Añadir ISA = añadir un `.env`.
+- **Cuatro ISAs construidas** (Buildroot 2024.02.11, defconfigs oficiales; pares máquina/kernel
+  tomados de `board/qemu/*/readme.txt`):
+  - **arm** — vexpress-a9, armhf, `zImage`+DTB, SD→/dev/mmcblk0, lan9118 (CP-2, reutilizado).
+  - **mips** — malta, MIPS32r2 **big-endian**, `vmlinux`, IDE→/dev/sda, pcnet, ttyS0.
+  - **mipsel** — malta, MIPS32r2 **little-endian**, `vmlinux`, IDE→/dev/sda, pcnet, ttyS0.
+  - **x86_64** — pc, `bzImage`, **virtio**→/dev/vda, virtio-net, ttyS0.
+- **Imagen de emulación** (`docker/emulation.Dockerfile`): añadidos `qemu-system-mips`,
+  `qemu-system-x86` (QEMU **10.0.8**) y toolchains `gcc-mips-linux-gnu`/`gcc-mipsel-linux-gnu`
+  (+libc-dev cross) a los ya presentes de ARM. Cross-ISA por **TCG** (sin KVM).
+- **Autodetección de ISA por cabecera ELF (ADR-021).** `POST /samples` lee `e_machine`+endianness
+  (`backend/app/archdetect.py`, sin deps) y elige el perfil; `arch` pasa a `auto` por defecto (si
+  viene explícito se respeta). **400** para ISA sin perfil o fichero no-ELF. Frontend: opción
+  «Detección automática (ELF)» por defecto + las 4 ISAs.
+- **Apagado limpio universal.** `reboot -f`+`-no-reboot` hace salir a QEMU en vexpress-a9 y pc,
+  pero en **malta** el kernel HALTA («Reboot failed -- System halted») y QEMU no saldría hasta el
+  timeout. `run_emulation.sh` ahora **vigila el serial** por la sentinela `=== apagando QEMU ===`
+  (que telemetry_init imprime tras cerrar sondas + sync + remount ro) y para QEMU en ~13 s en TODAS
+  las ISAs (sin la sentinela, MIPS habría tardado 180 s).
+
+**Cómo verificar (stack levantado):**
+```bash
+cd ~/Proyectos/iot-sandbox
+# (requiere las imágenes de rootfs: emulation/build_rootfs.sh {mips,mipsel,x86_64}; ~17 min c/u)
+docker compose up -d db valkey api worker
+# Standalone (sin API): emulation/run_emulation.sh mips   -> 3 artefactos en emulation/mips/_build/artifacts
+# End-to-end por API con AUTODETECCIÓN (sin campo arch):
+cp emulation/mips/_build/sample-overlay/opt/sample/test_sample /tmp/mips_bin
+SID=$(curl -s -F "file=@/tmp/mips_bin" localhost:8000/samples | python3 -c 'import sys,json;print(json.load(sys.stdin)["sample_id"])')
+until [ "$(curl -s localhost:8000/samples/$SID | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')" = done ]; do sleep 3; done
+curl -s localhost:8000/samples/$SID | python3 -m json.tool     # arch=mips detectado, IoCs, syscalls, red, fs
+docker compose down
+```
+
+**Funciona / No funciona (verificado REAL, detonación por API con autodetección):**
+- **Las 4 ISAs end-to-end, `status=done`** (subida → cola → worker → QEMU de la ISA por DooD →
+  parseo → PostgreSQL → reporte), cada una **detectada por su ELF** sin declarar `arch`:
+  | id | fichero | arch DETECTADO | syscalls | net | fs | IoCs |
+  |----|---------|----------------|----------|-----|----|----|
+  | 1  | ARM   | `arm`    | 78 | 5 | 4 | 5 |
+  | 2  | MIPS  | `mips`   | 74 | 5 | 4 | 5 |
+  | 3  | x86_64| `x86_64` | 77 | 4 | 4 | 5 |
+  | 4  | MIPSEL| `mipsel` | 74 | 4 | 4 | 5 |
+  El binario **little-endian** se enruta a **mipsel** (no mips): la discriminación por endianness
+  (EI_DATA) funciona end-to-end.
+- **Prueba REAL de MIPS (sample #2).** IoCs = `domain c2.sandbox-test.example` (pcap) ·
+  `file /tmp/iot_sandbox_marker.txt` (fs,strace) · `ip 198.51.100.23` (pcap,strace) · `port 4444`
+  (pcap,strace) · `hash 981d60ac…e0a2` (sample). Fragmentos:
+  - **strace** (MIPS): `execve("/opt/sample/test_sample", …) = 0` ·
+    `openat(…, "/tmp/iot_sandbox_marker.txt", O_WRONLY|O_CREAT|O_TRUNC…) = 3` ·
+    `chmod("/tmp/iot_sandbox_marker.txt", 0644) = 0` ·
+    `sendto(3, "\\0237…\\2c2\\fsandbox-test\\7exa"…, {…sin_port=htons(53)…10.0.2.3}) = 41` ·
+    `connect(3, {…sin_port=htons(4444), sin_addr=inet_addr("198.51.100.23")}) = -1 EINPROGRESS`.
+  - **tshark** (MIPS pcap): `10.0.2.15 → 10.0.2.3 DNS Standard query A c2.sandbox-test.example` ·
+    `10.0.2.15 → 198.51.100.23 TCP 38482 → 4444 [SYN]` (+ retransmisiones).
+  - **fs_events** (MIPS): `CREATE / MODIFY / CLOSE_WRITE,CLOSE / ATTRIB` sobre
+    `/tmp/iot_sandbox_marker.txt`.
+- **Autodetección + rechazos (400) con mensaje claro:** explícito `arch=sparc` → 400; fichero
+  no-ELF → 400 («no se pudo detectar…»); ELF `aarch64` (cabecera) → 400 («reconocida pero sin
+  perfil»). `arch` explícito soportado se respeta.
+- **Regresión ARM OK** con el script genérico (imágenes de CP-2, sin rebuild); apagado en ~13 s.
+- **Tiempos:** rebuild imagen emulación ~1,4 min; rootfs MIPS ~17 min; x86_64 + mipsel en
+  **paralelo** ~25 min (16 vCPU, `make -j16`, cache de descargas compartida `emulation/_dl`);
+  detonación por muestra ~13–17 s (QEMU TCG ~12–13 s + DooD/debugfs).
+- **Cosmético (no afecta):** el banner de stdout del binario horneado en los rootfs arm/mips aún
+  dice «binario ARM…» (se construyeron antes de neutralizar el literal en `test_sample.c`); es
+  salida del invitado, no un IoC. x86_64/mipsel ya llevan el literal «multi-ISA».
+- `docker compose down` ejecutado; sin contenedores/red residuales (la emulación DooD se
+  autoelimina `--rm`; QEMU se limpia por sentinela/timeout + trap).
+
+**Ficheros nuevos:** `emulation/{build_rootfs,run_emulation}.sh`,
+`emulation/profiles/{arm,mips,mipsel,x86_64}.env`,
+`emulation/common/{overlay/sbin/telemetry_init,testbin/test_sample.c,telemetry.fragment}`,
+`backend/app/archdetect.py`. **Eliminados** (movidos a common/genéricos): `emulation/arm/*`
+(scripts, overlay, testbin, buildroot/, README). **Modificados:** `docker/emulation.Dockerfile`,
+`.gitignore`, `backend/app/{config,main}.py`, `worker/{emulation,celery_app}.py`,
+`frontend/src/components/UploadForm.vue`, `emulation/README.md`.
+
+**Decisiones abiertas (→ DECISIONS.md):** **ADR-020** (registro de perfiles por ISA) y **ADR-021**
+(autodetección ELF) registradas como **ACEPTADA** (micro-decisiones de implementación, sin
+bifurcación que requiera revisión humana). Sin decisiones humanas pendientes.
+
+**Siguiente:** **Hito 3 (multi-arquitectura) COMPLETO.** Queda CP-5 (anti-evasión / INetSim) y
+**CP-7 (evaluación con malware real)** — requiere que Rafael aporte muestras y lo autorice.

@@ -13,8 +13,9 @@ Flujo completo: subir binario ARM → QEMU-ARM full-system → telemetría → I
 ## Hito 2 — Robustez y anti-evasión
 - CP-5 INetSim / red simulada ⬜
 
-## Hito 3 — Multi-arquitectura
-- CP-6 MIPS, MIPSEL, x86_64 ⬜
+## Hito 3 — Multi-arquitectura ✅ (2026-07-07)
+- CP-6 Registro de perfiles por ISA + autodetección ELF; **ARM + MIPS + MIPSEL + x86_64**
+  verificados end-to-end ✅
 
 ## Hito 4 — Evaluación (material para el TFM)
 - CP-7 Detonación de muestras reales + métricas de IoCs ⬜

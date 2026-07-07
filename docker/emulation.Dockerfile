@@ -1,9 +1,13 @@
-# docker/emulation.Dockerfile — Imagen de construcción + ejecución de la sandbox ARM (CP-2)
+# docker/emulation.Dockerfile — Imagen de construcción + ejecución de la sandbox MULTI-ISA
+# (CP-2 ARM · CP-6 MIPS/MIPSEL/x86_64)
 #
 # Contiene TODO lo necesario, de forma reproducible y SIN mutar el host, para:
-#   1. Construir el rootfs+kernel ARM con Buildroot (toolchain interno, kernel, paquetes).
-#   2. Compilar el binario ARM benigno de prueba (cross-compiler gnueabihf, estático).
-#   3. Arrancar QEMU full-system ARM y recoger/verificar los 3 artefactos.
+#   1. Construir el rootfs+kernel de cada ISA con Buildroot (toolchain interno, kernel, paquetes).
+#   2. Cross-compilar el binario benigno de prueba (armhf / mips / mipsel / x86-64, estático).
+#   3. Arrancar QEMU full-system (arm/mips/mipsel/x86_64) y recoger/verificar los 3 artefactos.
+#
+# Registro de perfiles por ISA: emulation/profiles/<arch>.env (ADR-020). Los scripts
+# genéricos emulation/{build_rootfs,run_emulation}.sh se ejecutan dentro de esta imagen.
 #
 # Base: Debian 13 "trixie" (misma familia que el worker, ADR-008). QEMU vía apt = 10.0.x
 # (ADR-012 proponía 9.2; trixie ya empaqueta 10.0.8, se documenta la corrección en ADR-016).
@@ -15,10 +19,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        # --- QEMU full-system ARM (ejecución de la sandbox) ---
-        qemu-system-arm qemu-utils \
-        # --- Toolchain de compilación del binario de prueba (ARM hard-float, EABI5) ---
+        # --- QEMU full-system por ISA (ejecución de la sandbox) ---
+        #   qemu-system-arm  -> arm/aarch64 ; qemu-system-mips -> mips/mipsel(64) ;
+        #   qemu-system-x86  -> x86_64/i386. Versiones de Debian 13 "trixie" (QEMU 10.0.x).
+        qemu-system-arm qemu-system-mips qemu-system-x86 qemu-utils \
+        # --- Toolchains de compilación del binario de prueba (estático, por ISA) ---
+        #   ARM hard-float (EABI5), MIPS o32 big-endian y little-endian. x86-64 = gcc nativo.
         gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+        gcc-mips-linux-gnu libc6-dev-mips-cross \
+        gcc-mipsel-linux-gnu libc6-dev-mipsel-cross \
         # --- Dependencias de build de Buildroot ---
         build-essential gcc g++ make git wget curl ca-certificates \
         cpio unzip rsync bc file python3 libncurses-dev \

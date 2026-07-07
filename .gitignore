@@ -59,15 +59,16 @@ fs_events.log
 *.dtb
 zImage
 bzImage
+vmlinux
 vmlinuz*
 initramfs*
 emulation/**/output/
 emulation/**/downloads/
 emulation/**/dl/
-# Árbol de build de la sandbox ARM (Buildroot, imágenes, artefactos; se generan)
-emulation/arm/_build/
-# Binario de prueba compilado que se inyecta en el overlay del rootfs
-emulation/arm/overlay/opt/sample/test_sample
+# Árbol de build por ISA (Buildroot, imágenes, artefactos, sample-overlay; se generan)
+emulation/*/_build/
+# Cache de descargas de Buildroot COMPARTIDA entre ISAs
+emulation/_dl/
 
 # --- Docker / build -------------------------------------------------------
 *.pid

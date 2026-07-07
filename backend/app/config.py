@@ -3,6 +3,7 @@
 Lee la configuración de variables de entorno (inyectadas por docker-compose). Los nombres
 de campo se mapean de forma case-insensitive: p. ej. DATABASE_URL -> database_url.
 """
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,8 +27,19 @@ class Settings(BaseSettings):
     # Tamaño máximo de subida (bytes). 64 MiB por defecto (binarios IoT son pequeños).
     max_upload_bytes: int = 64 * 1024 * 1024
 
-    # Arquitecturas soportadas (CP-3 solo ARM; MIPS/x86_64 en CP-6).
-    supported_arches: tuple[str, ...] = ("arm",)
+    # Arquitecturas soportadas (con perfil + rootfs construido) — CP-6.
+    # Cada una tiene un perfil en emulation/profiles/<arch>.env. Se usa como gate del
+    # endpoint POST /samples (autodetección ELF o `arch` explícito). Overridable por env
+    # SUPPORTED_ARCHES="arm,mips,mipsel,x86_64" (lista separada por comas).
+    supported_arches: tuple[str, ...] = ("arm", "mips", "mipsel", "x86_64")
+
+    @field_validator("supported_arches", mode="before")
+    @classmethod
+    def _split_arches(cls, v):
+        """Permite override por env como cadena separada por comas: "arm,mips"."""
+        if isinstance(v, str):
+            return tuple(a.strip().lower() for a in v.split(",") if a.strip())
+        return v
 
 
 settings = Settings()

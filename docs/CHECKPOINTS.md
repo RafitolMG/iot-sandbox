@@ -62,9 +62,14 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 - Integrar simulación de servicios de red (DNS/HTTP) para que el binario crea tener conectividad.
 - **PARA.** Revisión.
 
-### CP-6 · Generalización multi-arquitectura
-- Añadir MIPS/MIPSEL/x86_64 (kernel + rootfs + binario QEMU por ISA). Selección de arquitectura
-  automática o manual al subir la muestra.
+### CP-6 · Generalización multi-arquitectura ✅
+- Capa de emulación refactorizada a un **registro de perfiles por ISA** (ADR-020): scripts
+  genéricos `emulation/{build_rootfs,run_emulation}.sh <arch>` dirigidos por
+  `emulation/profiles/<arch>.env`, con `emulation/common/` compartido (telemetry_init +
+  test_sample.c + fragment). ARM = primer entry (imágenes de CP-2 reutilizadas).
+- **MIPS/MIPSEL/x86_64** añadidos (kernel + rootfs Buildroot + binario QEMU por ISA).
+- **Autodetección de ISA** al subir la muestra por la cabecera ELF (ADR-021), con `arch`
+  explícito respetado y **400** para ISAs sin perfil.
 - **PARA.** Revisión.
 
 ### CP-7 · Evaluación con malware real
@@ -84,5 +89,5 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 | CP-3 | API + cola + persistencia | ✅ Hecho (2026-07-07) |
 | CP-4 | Frontend (MVP completo) | ✅ Hecho (2026-07-07) — **🏁 Hito 1 / MVP COMPLETO** |
 | CP-5 | Anti-evasión INetSim | ⬜ Pendiente |
-| CP-6 | Multi-arquitectura | ⬜ Pendiente |
+| CP-6 | Multi-arquitectura | ✅ Hecho (2026-07-07) — ARM + MIPS + MIPSEL + x86_64 |
 | CP-7 | Evaluación malware real | ⬜ Pendiente |

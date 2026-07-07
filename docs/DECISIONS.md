@@ -321,6 +321,68 @@ Docker como en desarrollo local, sin CORS.
 **Impacto en el TFM:** describe la capa de presentación y su integración con la API (Cap. 4.2.2);
 las capturas de la web para la memoria se obtienen de esta SPA.
 
+### ADR-020 — Registro de perfiles de emulación por ISA (CP-6) · ACEPTADA
+**Contexto:** el título del TFM es «multi-arquitectura». ADR-002 anticipó que generalizar más
+allá de ARM es «casi mecánico» (otro kernel + rootfs + binario QEMU). CP-6 lo materializa sin
+duplicar la capa de emulación de ARM (CP-2, ADR-016).
+
+**Decisión:** sustituir los scripts específicos de ARM (`emulation/arm/{build_rootfs,run_emulation}.sh`)
+por **dos scripts genéricos** (`emulation/{build_rootfs,run_emulation}.sh <arch>`) **dirigidos por
+un registro de perfiles**: `emulation/profiles/<arch>.env`. Cada perfil declara variables `P_*`
+que describen íntegramente la ISA: defconfig de Buildroot, toolchain (+cflags) del binario de
+prueba, binario y máquina de QEMU, kernel/DTB, interfaz de disco y dispositivo raíz, consola
+serie, modelo de NIC, resize del rootfs y el mapeo ELF (`e_machine`/endianness) para la
+autodetección (ADR-021). Se **comparte** todo lo arch-agnóstico en `emulation/common/`:
+`overlay/sbin/telemetry_init` (PID 1 del invitado, shell POSIX), `testbin/test_sample.c` (C
+portable, ADR-005) y `telemetry.fragment` (paquetes strace/tcpdump/inotify + tamaño ext2). El
+binario de prueba se cross-compila **estático** por ISA en un `sample-overlay` propio; Buildroot
+funde ambos overlays (`BR2_ROOTFS_OVERLAY="…/common/overlay …/<arch>/_build/sample-overlay"`).
+
+- **ARM = primer entry del registro** (`profiles/arm.env`): mismo par máquina/kernel/rootfs de
+  ADR-016 (vexpress-a9, armhf, zImage+DTB, SD→/dev/mmcblk0). El kernel+rootfs ya construidos se
+  reutilizan sin recompilar; verificado con el script genérico (regresión OK).
+- **Pares máquina/kernel/rootfs de las ISAs nuevas** tomados del readme oficial de cada placa
+  QEMU de Buildroot (`board/qemu/*/readme.txt`), no inventados:
+  - **mips / mipsel:** `qemu_mips32r2{,el}_malta_defconfig`, `-M malta`, kernel `vmlinux`, disco
+    IDE→**/dev/sda** (libata), NIC **pcnet**, consola **ttyS0**. Toolchain `mips{,el}-linux-gnu-gcc`
+    (`-march=mips32r2 -mabi=32 -E{B,L}`).
+  - **x86_64:** `qemu_x86_64_defconfig`, `-M pc`, kernel `bzImage`, disco **virtio→/dev/vda**, NIC
+    **virtio**, consola **ttyS0**. Binario de prueba con el gcc nativo del contenedor.
+- **Entorno de build/run:** un único contenedor `iot-sandbox/emulation:dev` (Debian 13) con
+  `qemu-system-{arm,mips,x86}` (QEMU 10.0.8) + toolchains armhf/mips/mipsel; cross-ISA por **TCG**
+  (sin KVM/privilegios). Cache de descargas de Buildroot **compartida** (`emulation/_dl/`).
+- **Worker:** `run_emulation(arch=…)` pasa la ISA como 1er argumento al script genérico (DooD,
+  ADR-017 intacto). No hay rutas por ISA codificadas en el worker.
+
+**Alternativa descartada:** duplicar `emulation/<arch>/{build,run}.sh` por ISA (lo que sugería el
+scaffolding de CP-0) → divergencia y mantenimiento cuadrático. El registro deja «añadir una ISA =
+añadir un `.env`».
+
+**Impacto en el TFM:** núcleo de la generalización multi-arquitectura (Cap. 4.2.2); el registro
+es directamente tabulable en la memoria.
+
+### ADR-021 — Autodetección de arquitectura por cabecera ELF (CP-6) · ACEPTADA
+**Contexto:** al subir una muestra hay que elegir el perfil de la sandbox. Exigir que el analista
+declare la ISA es frágil (malware IoT llega sin metadatos fiables).
+
+**Decisión:** `POST /samples` **autodetecta la ISA** leyendo la cabecera ELF de los primeros
+bytes del binario (`backend/app/archdetect.py`, sin dependencias): magic `\x7fELF`, `EI_DATA`
+(endianness) y `e_machine` (offset 18, uint16 en esa endianness). Mapeo: `EM_ARM(40)→arm`,
+`EM_MIPS(8)→mips` si big-endian / `mipsel` si little-endian, `EM_X86_64(62)→x86_64`
+(`EM_386(3)→i386`, `EM_AARCH64(183)→aarch64` se reconocen pero no tienen perfil). El campo
+`arch` del multipart pasa a `auto` por defecto: **si viene explícito (arm|mips|mipsel|x86_64) se
+respeta; si es `auto`/vacío se autodetecta**. Se rechaza con **400** (mensaje claro) toda ISA sin
+perfil disponible o cuando el fichero no es un ELF reconocible y no se dio `arch`. El gate
+`supported_arches` es overridable por env (`SUPPORTED_ARCHES="arm,mips,…"`). El frontend ofrece
+«Detección automática (ELF)» como opción por defecto.
+
+**Alternativas descartadas:** `python-magic`/`libmagic` o invocar `file`/`readelf` (dependencia
+externa en la imagen de la API por 12 bytes de cabecera); heurísticas por extensión de fichero
+(el malware IoT no tiene extensión fiable).
+
+**Impacto en el TFM:** describe la selección automática de sandbox (Cap. 4.2.2) y refuerza la
+usabilidad del análisis multi-arquitectura.
+
 ---
 
 ## Cómo se conecta con la "memoria" del TFM

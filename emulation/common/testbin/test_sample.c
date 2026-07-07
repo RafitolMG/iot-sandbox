@@ -1,6 +1,10 @@
 /*
- * test_sample.c — BINARIO ARM BENIGNO DE PRUEBA (TFM IoT Sandbox, CP-2)
+ * test_sample.c — BINARIO BENIGNO DE PRUEBA MULTI-ISA (TFM IoT Sandbox, CP-2/CP-6)
  * ============================================================================
+ *
+ *  Fuente ÚNICA compartida por todas las arquitecturas (arm, mips, mipsel,
+ *  x86_64, ...). Es C portable; cada perfil lo cross-compila estático con su
+ *  toolchain (ver emulation/profiles/<arch>.env + emulation/build_rootfs.sh).
  *
  *  ⚠  ESTO NO ES MALWARE.  Es un binario de prueba deliberadamente BENIGNO y
  *     totalmente transparente cuyo único fin es VALIDAR la tubería de telemetría
@@ -22,9 +26,13 @@
  *                     la NIC del invitado y quedan capturados en el pcap. Eso es lo que
  *                     importa: registrar el *intento* de C2, como haría el análisis real.
  *
- *  Compilación (estática, ARM hard-float EABI5), hecha por build_rootfs.sh:
- *      arm-linux-gnueabihf-gcc -static -O2 -march=armv7-a -mfpu=vfpv3-d16 \
- *          -mfloat-abi=hard -o test_sample test_sample.c
+ *  Compilación (SIEMPRE estática, para no depender de la libc del invitado), hecha
+ *  por emulation/build_rootfs.sh con el toolchain declarado en el perfil de la ISA.
+ *  Ejemplos:
+ *      arm    : arm-linux-gnueabihf-gcc -static -O2 -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard
+ *      mips   : mips-linux-gnu-gcc      -static -O2 -march=mips32r2 -mabi=32 -EB
+ *      mipsel : mipsel-linux-gnu-gcc    -static -O2 -march=mips32r2 -mabi=32 -EL
+ *      x86_64 : x86_64-linux-gnu-gcc    -static -O2
  *
  *  El destino "C2" y el dominio son valores de laboratorio no enrutables/de ejemplo
  *  (documentación RFC 5737 / RFC 2606), nunca una infraestructura real.
@@ -168,7 +176,7 @@ static void do_network(void)
 
 int main(void)
 {
-    printf("==== test_sample: binario ARM BENIGNO de prueba (IoT sandbox CP-2) ====\n");
+    printf("==== test_sample: binario BENIGNO de prueba multi-ISA (IoT sandbox) ====\n");
     do_syscalls();     /* (a) */
     do_file_write();   /* (b) */
     do_network();      /* (c) */

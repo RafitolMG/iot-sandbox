@@ -26,7 +26,9 @@ IMAGE = os.environ.get("EMULATION_IMAGE", "iot-sandbox/emulation:dev")
 PROJECT_DEST = "/project"
 SAMPLES_DEST = "/data/samples"
 ARTIFACTS_DEST = "/data/artifacts"
-RUNNER = "emulation/arm/run_emulation.sh"
+# Script GENÉRICO dirigido por el registro de perfiles (CP-6, ADR-020): recibe la ISA como
+# primer argumento y carga emulation/profiles/<arch>.env.
+RUNNER = "emulation/run_emulation.sh"
 
 
 def _client() -> docker.DockerClient:
@@ -69,13 +71,16 @@ def resolve_wiring(client: docker.DockerClient) -> tuple[str | None, str | None,
 def run_emulation(
     sample_id: int,
     sha256: str,
+    arch: str = "arm",
     timeout_s: int = 180,
     net_restrict: bool = False,
 ) -> dict:
-    """Detona la muestra en la sandbox ARM (DooD) y deja los artefactos en un volumen.
+    """Detona la muestra en la sandbox de la ISA `arch` (DooD) y deja los artefactos en un volumen.
 
-    Devuelve {"exit_code", "out_dir" (ruta local del worker), "logs"}. `out_dir` apunta
-    al montaje que el worker tiene del volumen de artefactos, listo para parsear.
+    Selecciona el perfil de QEMU/kernel/rootfs pasando `arch` como primer argumento al
+    script genérico `emulation/run_emulation.sh` (CP-6, ADR-020). Devuelve
+    {"exit_code", "out_dir" (ruta local del worker), "logs"}. `out_dir` apunta al montaje
+    que el worker tiene del volumen de artefactos, listo para parsear.
     """
     client = _client()
     host_project, sample_vol, artifacts_vol = resolve_wiring(client)
@@ -104,7 +109,7 @@ def run_emulation(
 
     container = client.containers.run(
         IMAGE,
-        command=["bash", RUNNER, out_in, str(timeout_s)],
+        command=["bash", RUNNER, arch, out_in, str(timeout_s)],
         environment=environment,
         volumes=volumes,
         working_dir=PROJECT_DEST,

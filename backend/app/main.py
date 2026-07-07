@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.archdetect import detect_arch_from_bytes, is_known_unsupported
 from app.celery_client import celery_client
 from app.config import settings
 from app.db import get_session
@@ -40,31 +41,40 @@ async def health() -> dict[str, str]:
 @app.post("/samples", response_model=UploadAccepted, status_code=202)
 async def upload_sample(
     file: UploadFile = File(...),
-    arch: str = Form("arm"),
+    arch: str = Form("auto"),
     session: AsyncSession = Depends(get_session),
 ) -> UploadAccepted:
     """Recibe un binario, lo persiste y encola su análisis dinámico.
+
+    Selección de arquitectura (CP-6, ADR-021): si `arch` viene explícito (arm|mips|
+    mipsel|x86_64) se respeta; si es `auto`/vacío se AUTODETECTA leyendo la cabecera ELF
+    (e_machine + endianness). Se rechaza (400) toda ISA sin perfil disponible.
 
     Idempotente por contenido: si ya existe una muestra con el mismo sha256 se devuelve
     la existente (no se vuelve a encolar).
     """
     arch = arch.lower().strip()
-    if arch not in settings.supported_arches:
+    explicit = arch not in ("", "auto")
+    if explicit and arch not in settings.supported_arches:
         raise HTTPException(
             status_code=400,
-            detail=f"arquitectura '{arch}' no soportada en CP-3 (soportadas: "
+            detail=f"arquitectura '{arch}' no soportada (soportadas: "
             f"{', '.join(settings.supported_arches)})",
         )
 
     # Lectura en streaming + sha256 + límite de tamaño (sin cargar todo en memoria a ciegas).
+    # Se conserva la cabecera (primeros bytes) para autodetectar la ISA por el ELF.
     sha = hashlib.sha256()
     size = 0
+    head = b""
     storage_dir = Path(settings.sample_storage_dir)
     storage_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = storage_dir / f".upload-{os.getpid()}-{id(file)}.part"
     try:
         with tmp_path.open("wb") as out:
             while chunk := await file.read(1024 * 1024):
+                if not head:
+                    head = chunk[:64]
                 size += len(chunk)
                 if size > settings.max_upload_bytes:
                     raise HTTPException(status_code=413, detail="fichero demasiado grande")
@@ -77,6 +87,27 @@ async def upload_sample(
     if size == 0:
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="fichero vacío")
+
+    # --- Resolución de arquitectura (autodetección ELF si no vino explícita) ----
+    if not explicit:
+        detected = detect_arch_from_bytes(head)
+        if detected is None:
+            tmp_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="no se pudo detectar la arquitectura (¿no es un ELF?); "
+                "especifica 'arch' explícitamente "
+                f"(soportadas: {', '.join(settings.supported_arches)})",
+            )
+        if detected not in settings.supported_arches:
+            tmp_path.unlink(missing_ok=True)
+            hint = " (reconocida pero sin perfil en la sandbox)" if is_known_unsupported(detected) else ""
+            raise HTTPException(
+                status_code=400,
+                detail=f"arquitectura detectada '{detected}' no soportada{hint} "
+                f"(soportadas: {', '.join(settings.supported_arches)})",
+            )
+        arch = detected
 
     sha256 = sha.hexdigest()
 

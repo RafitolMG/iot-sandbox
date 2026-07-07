@@ -2,8 +2,9 @@
 
 Flujo de `analyze(sample_id)`:
   1. Carga la muestra (sha256, arch) y la marca `running`.
-  2. Detona el binario en la sandbox ARM (QEMU full-system, CP-2) vía Docker-out-of-Docker
-     (ADR-017): la muestra NO confiable se ejecuta dentro del invitado, nunca aquí.
+  2. Detona el binario en la sandbox de su ISA (QEMU full-system, CP-2/CP-6) vía
+     Docker-out-of-Docker (ADR-017): el worker selecciona el perfil por `arch` (ADR-020);
+     la muestra NO confiable se ejecuta dentro del invitado, nunca aquí.
   3. Parsea los 3 artefactos (strace.log, capture.pcap, fs_events.log) y extrae IoCs.
   4. Persiste syscalls / flujos de red / fs_events / IoCs en PostgreSQL.
   5. Marca `done` (o `failed` con el error) y anota `finished_at`.
@@ -107,7 +108,7 @@ def analyze(self, sample_id: int) -> dict:
 
     try:
         emu = run_emulation(
-            sample_id, sha256,
+            sample_id, sha256, arch=arch or "arm",
             timeout_s=EMULATION_TIMEOUT,
             net_restrict=SANDBOX_NET_RESTRICT,
         )
