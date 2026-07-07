@@ -78,7 +78,7 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 | CP | Descripción | Estado |
 |----|-------------|--------|
 | CP-0 | Kickoff y andamiaje | ✅ Hecho (2026-07-07) |
-| CP-1 | Infraestructura levanta | ⬜ Pendiente |
+| CP-1 | Infraestructura levanta | ✅ Hecho (2026-07-07) |
 | CP-2 | Núcleo emulación ARM | ⬜ Pendiente |
 | CP-3 | API + cola + persistencia | ⬜ Pendiente |
 | CP-4 | Frontend (MVP completo) | ⬜ Pendiente |

@@ -58,3 +58,56 @@ git check-ignore -v .env samples/x.bin capture.pcap    # confirma que se ignoran
 **Siguiente:** CP-1 — infraestructura levanta (`docker compose up` con API `/health`, Postgres,
 Redis, worker Celery con tarea `ping` y migraciones iniciales). **Requiere** aceptar primero
 las versiones propuestas (ADR-007..014).
+
+---
+
+## CP-1 · Infraestructura levanta — 2026-07-07
+
+**Hecho:**
+- **Broker migrado a Valkey 8** (ADR-011 resuelta): `docker-compose.yml` usa
+  `valkey/valkey:8-alpine` (servicio `valkey`, healthcheck `valkey-cli ping`). Protocolo sigue
+  siendo `redis://valkey:6379/N`.
+- **API FastAPI** (`backend/app/`): `GET /health` → `{"status":"ok"}`. App como paquete:
+  `config.py` (pydantic-settings), `db.py` (SQLAlchemy async: `create_async_engine` +
+  `async_sessionmaker` sobre asyncpg), `models.py` (tabla `sample`), `celery_client.py`
+  (productor Celery), `main.py`. Dockerfile real `docker/api.Dockerfile` (instala
+  `backend/requirements.txt` con pins).
+- **Worker Celery** (`worker/celery_app.py`): tarea de prueba `ping` → `"pong"`. Dockerfile real
+  `docker/worker.Dockerfile` sobre `python:3.12-slim-trixie` (base lista para QEMU 9.2 en CP-2;
+  **sin instalar QEMU aún** → arranque rápido).
+- **Migraciones Alembic en modo async** (una sola `DATABASE_URL` asyncpg para app y migraciones).
+  Revisión inicial `0001_initial` crea la tabla `sample` (id, filename, sha256[unique], arch,
+  status, created_at). Se aplican en el **entrypoint de la API** (`alembic upgrade head`) antes
+  de uvicorn.
+- **Compose:** 5 servicios (api, worker, db, valkey, frontend[placeholder]) con `depends_on` +
+  healthchecks (db, valkey, api, worker), red `sandbox_net`, env `DATABASE_URL` /
+  `REDIS_URL=redis://valkey:6379/0` / `CELERY_BROKER_URL` (DB 0) / `CELERY_RESULT_BACKEND` (DB 1).
+- `.env.example` ampliado (Celery), `.dockerignore` nuevo, ADR-015 registrada (ACEPTADA).
+- Frontend intacto (placeholder de CP-0).
+
+**Cómo verificar:**
+```bash
+cd ~/Proyectos/iot-sandbox
+docker compose build api worker
+docker compose up -d db valkey            # esperar healthy
+docker compose up -d api worker
+curl -s localhost:8000/health             # {"status":"ok"}
+curl -s localhost:8000/ping-task          # {"task_id":"...","result":"pong"}
+docker compose exec -T db psql -U sandbox -d sandbox -c '\d sample'
+docker compose down
+```
+
+**Funciona / No funciona:**
+- Funciona (verificado): build de api+worker OK; db+valkey healthy; API healthy; migración
+  `0001_initial` aplicada (tabla `sample` creada, `alembic_version=0001_initial`);
+  `GET /health` → `{"status":"ok"}`; `GET /ping-task` →
+  `{"task_id":"41c962d8-…","result":"pong"}` (worker log: `Task ping[…] succeeded … 'pong'`);
+  worker healthy. `docker compose down` ejecutado (sin contenedores ni volúmenes residuales).
+- Pendiente por diseño: QEMU/emulación (CP-2), `POST/GET /samples` + persistencia (CP-3),
+  frontend real (CP-4). El endpoint `/ping-task` es temporal y se retira en CP-3.
+
+**Decisiones abiertas (→ DECISIONS.md):** ninguna nueva. ADR-015 (estructura app + migraciones)
+registrada como **ACEPTADA** (micro-decisión de implementación, no requiere revisión humana).
+
+**Siguiente:** CP-2 — núcleo de emulación ARM (QEMU full-system + rootfs + binario benigno →
+strace/tcpdump/inotify). Hito técnico más arriesgado.

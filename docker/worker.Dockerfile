@@ -1,10 +1,20 @@
-# docker/worker.Dockerfile — PLACEHOLDER (CP-0)
-# El worker (Celery + QEMU full-system) se implementa en CP-1 (tarea ping) y CP-2 (ARM).
-# Imagen base y QEMU propuestos en ADR-008 / ADR-012 (docs/DECISIONS.md).
+# docker/worker.Dockerfile — Worker Celery (CP-1)
+# Imagen base: ADR-008 (python:3.12-slim-trixie). Trixie (Debian 13) se elige AHORA para
+# que en CP-2 se pueda instalar QEMU 9.2 vía apt sin cambiar de base. En CP-1 NO se instala
+# QEMU (arranque rápido); esa capa se añade en CP-2.
 FROM python:3.12-slim-trixie
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# CP-1: apt-get install qemu-system-arm (+ tcpdump, ...) + pip install celery, redis.
-# CP-2: consumir los perfiles de emulation/arm/ para arrancar QEMU full-system.
-CMD ["python", "-c", "print('iot-sandbox worker: placeholder CP-0, sin implementar (ver CP-1/CP-2)')"]
+COPY worker/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+COPY worker/ ./
+
+# Worker Celery: descubre la app en celery_app.py (módulo `app`). Concurrencia baja para el MVP.
+CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=2"]

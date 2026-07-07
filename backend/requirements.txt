@@ -1,0 +1,10 @@
+# backend/requirements.txt — API FastAPI (CP-1)
+# Versiones FIJADAS (ADR-014: pip + requirements con pins). Nada de `latest`.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+celery[redis]==5.4.0
+pydantic-settings==2.7.0

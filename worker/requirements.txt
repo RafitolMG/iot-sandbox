@@ -1,0 +1,4 @@
+# worker/requirements.txt — Worker Celery (CP-1)
+# Versiones FIJADAS (ADR-014). En CP-2 se añadirá QEMU (vía apt, no aquí) y utilidades.
+
+celery[redis]==5.4.0

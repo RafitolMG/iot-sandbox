@@ -1,0 +1,23 @@
+# .dockerignore — reduce el contexto de build (el context es la raíz del repo).
+.git
+.gitignore
+docs
+README.md
+frontend/node_modules
+frontend/dist
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.venv
+venv
+.env
+.env.*
+!.env.example
+samples
+artifacts
+*.pcap
+*.log
+emulation/**/output
+emulation/**/downloads
