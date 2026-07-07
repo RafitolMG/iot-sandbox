@@ -1,4 +1,10 @@
-# worker/requirements.txt — Worker Celery (CP-1)
-# Versiones FIJADAS (ADR-014). En CP-2 se añadirá QEMU (vía apt, no aquí) y utilidades.
+# worker/requirements.txt — Worker Celery (CP-3)
+# Versiones FIJADAS (ADR-014). QEMU NO va aquí: la emulación se lanza vía Docker-out-of-Docker
+# (ADR-017) reutilizando la imagen `iot-sandbox/emulation:dev`. Aquí solo van las deps Python
+# del pipeline (cola, BD síncrona, parseo de pcap, cliente Docker). Todo pip, sin apt.
 
 celery[redis]==5.4.0
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3      # driver PostgreSQL SÍNCRONO (las tareas Celery son sync)
+scapy==2.6.1                # parseo de pcap en Python puro (SLL/DNS), sin tshark en el worker
+docker==7.1.0               # SDK: lanza la imagen de emulación por el socket (DooD)

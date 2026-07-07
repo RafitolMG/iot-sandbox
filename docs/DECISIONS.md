@@ -211,6 +211,84 @@ El aislamiento pleno (`restrict=on` / INetSim) es **CP-5**; activable ya con
 
 **Impacto en el TFM:** cierra el núcleo de la implementación (Cap. 4.2.2) y su reproducibilidad.
 
+### ADR-017 — Cableado worker→emulación: Docker-out-of-Docker (DooD) (CP-3) · ACEPTADA
+**Contexto:** el worker Celery debe lanzar la emulación de CP-2, que vive en la imagen
+`iot-sandbox/emulation:dev` (QEMU 10 + Buildroot + toolchain, ADR-016). Hay que decidir CÓMO
+el worker (un contenedor) arranca otro contenedor con QEMU sin duplicar esa imagen ni meter
+QEMU en el worker.
+
+**Opciones:** A) **DooD** — montar el socket `/var/run/docker.sock` del host en el worker;
+el worker usa el SDK de Docker (`docker==7.1.0`) para lanzar `iot-sandbox/emulation:dev`.
+B) **DinD** (sidecar `docker:dind` privilegiado) — más pesado y también privilegiado.
+C) instalar QEMU+Buildroot+imágenes dentro del worker — duplica la capa de emulación y acopla
+dos servicios que ADR-016 dejó aislados.
+
+**Decisión:** **A (DooD).** Reutiliza VERBATIM la imagen de CP-2; el worker queda fino (solo
+deps Python). El worker resuelve el intercambio de datos SIN codificar rutas del host:
+inspecciona sus propios montajes (`inspect_container($HOSTNAME).Mounts`) para derivar (1) la
+ruta del repo en el host (bind `/project`), (2) el nombre del volumen de muestras
+(`/data/samples`) y (3) el de artefactos (`/data/artifacts`); admite override por env
+`HOST_PROJECT_DIR` / `SAMPLE_VOLUME` / `ARTIFACTS_VOLUME`. Lanza la emulación con esos tres
+montajes (proyecto ro, muestras ro, artefactos rw), `IN_SANDBOX=1`, `SAMPLE_BIN=<vol>/<sha256>`
+y recoge los artefactos de su propio montaje del volumen `artifacts`.
+
+**Inyección de la muestra:** la muestra NO confiable se escribe en el rootfs ext2 con
+`debugfs -w` (sin montar, sin privilegios) sustituyendo `/opt/sample/test_sample` y marcándola
+`0100755 uid=0`; solo se ejecuta DESPUÉS dentro de QEMU (`SAMPLE_BIN` en `run_emulation.sh`).
+
+**⚠ Riesgo de seguridad (relevante):** montar `docker.sock` en el worker equivale a acceso
+root en el host (quien controla el socket puede crear contenedores privilegiados, montar `/`,
+etc.). **Mitigaciones adoptadas:**
+- El worker solo lanza una **imagen fija y conocida** con un comando fijo; **sin** `--privileged`,
+  sin `/dev/kvm`, sin caps extra (QEMU cross-ISA por TCG, ADR-016).
+- La muestra maliciosa se ejecuta **dentro de QEMU**, dos capas de aislamiento por debajo del
+  socket; **nunca** toca el proceso worker ni el socket. Montajes al contenedor de emulación:
+  proyecto y muestras en **solo lectura**.
+- El worker no expone el socket a la muestra ni a la red.
+
+**Mitigaciones futuras (fuera del MVP):** socket-proxy (p.ej. `tecnativa/docker-socket-proxy`)
+restringido a crear-contenedor sobre esa única imagen; Docker rootless; o un runner dedicado
+(VM/microVM). Se anota para el capítulo de seguridad/limitaciones del TFM.
+
+**Impacto en el TFM:** describe la integración worker↔emulación y su superficie de riesgo
+(Cap. 4.2.2 + apartado de seguridad/limitaciones).
+
+### ADR-018 — Modelo de datos del análisis y estrategia de parseo (CP-3) · ACEPTADA
+**Contexto:** CP-3 debía cerrar el modelo de datos (borrador de `ARCHITECTURE.md`) y elegir las
+librerías de parseo de los 3 artefactos.
+
+**Modelo de datos (firme, MVP):** `sample 1─* {syscall_event, network_flow, fs_event, ioc}`,
+todas las hijas con **FK ON DELETE CASCADE**. Se añaden a `sample` las columnas `size_bytes`,
+`error` y `finished_at` (migración Alembic `0002_analysis_model`). Ciclo de estado de la
+muestra: `queued → running → done | failed`. `ioc` lleva **UNIQUE(sample_id, type, value)**:
+un indicador por muestra, con la columna `source` = fuentes que lo corroboran unidas por comas
+(p.ej. una IP vista en strace Y en el pcap → `"pcap,strace"`). `network_flow` guarda flujos IP
+**agregados por 4-tupla** (proto, src, dst, dport) con contadores `packets`/`bytes`.
+
+**Extracción de IoCs:** `type ∈ {ip, domain, file, port, hash}`. Reglas: dominios de las
+consultas DNS del pcap; IPs/puertos de destinos **externos** (se excluye la subred interna de
+QEMU SLIRP `10.0.2.0/24`, que es infraestructura del sandbox, no un IoC) tanto del pcap como de
+`connect/sendto` en strace; ficheros de los syscalls de escritura/creación (`openat` con
+`O_CREAT|O_WRONLY|O_RDWR`, `chmod`, `unlink`, `rename`…) y de `fs_events.log`, ignorando rutas de
+solo-lectura del sistema (`/proc`, `/sys`, `/etc`, …); y el `sha256` de la muestra como IoC
+`hash`. Deduplicado por (type, value).
+
+**Librerías de parseo:**
+- **pcap → `scapy==2.6.1`** (Python puro). **Motivo:** NO requiere `tshark`/wireshark en la
+  imagen del worker (que queda fina, solo pip), disecciona nativamente el linktype "cooked"
+  (SLL/SLLv2) que produce `tcpdump -i any` y extrae los nombres de consulta DNS necesarios para
+  los IoCs de dominio. Alternativa descartada: **pyshark** (envuelve `tshark` → obligaría a
+  instalar wireshark-common en el worker, +100 MB y un binario externo).
+- **strace/fs_events → parseo propio con expresiones regulares** (formato line-oriented estable
+  de `strace -f -tt -T` e `inotifywait --format`), sin dependencias.
+- **BD del worker → SQLAlchemy Core SÍNCRONO + `psycopg[binary]==3.2.3`.** Las tareas Celery son
+  síncronas; la `DATABASE_URL` async (`+asyncpg`) se reescribe a `+psycopg`. El worker declara
+  las tablas como objetos Core (no importa el ORM de la API) manteniendo el desacoplo API↔worker
+  de ADR-015 (comparten broker+BD, no código; la DDL la posee Alembic en el lado API).
+
+**Impacto en el TFM:** fija el modelo relacional y la técnica de extracción de IoCs (Cap. 4.2.2)
+que se evalúan con malware real en CP-7.
+
 ---
 
 ## Cómo se conecta con la "memoria" del TFM

@@ -40,7 +40,7 @@ services:
     networks: [sandbox_net]
     restart: unless-stopped
 
-  # --- Worker de análisis (Celery + QEMU full-system) — CP-1 ping / CP-2 QEMU
+  # --- Worker de análisis (Celery + emulación QEMU vía DooD) — CP-3 ---------
   worker:
     build:
       context: .
@@ -56,11 +56,23 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://valkey:6379/0}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://valkey:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://valkey:6379/1}
+      EMULATION_TIMEOUT: ${EMULATION_TIMEOUT:-180}
+      # Override opcional del wiring DooD; si va vacío, el worker lo autodescubre
+      # inspeccionando sus propios montajes (ver worker/emulation.py, ADR-017).
+      HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-}
     volumes:
       - sample_storage:/data/samples:ro   # lee la muestra (solo lectura)
       - artifacts:/data/artifacts         # strace.log, capture.pcap, fs_events.log
-    # NOTA de seguridad: la emulación cross-ISA (ARM sobre host x86) usa TCG, NO KVM,
-    # por lo que el worker NO necesita /dev/kvm ni privilegios elevados (ver CP-2).
+      # DooD (ADR-017): el worker lanza `iot-sandbox/emulation:dev` por el socket del host.
+      # RIESGO: montar docker.sock ~= root en el host. Mitigacion: el worker solo corre una
+      # imagen fija sin --privileged; la muestra NO confiable vive dentro de QEMU (2 capas
+      # por debajo del socket) y nunca toca el worker ni el socket. Detalle en ADR-017.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Bind del repo: da al worker la RUTA DEL HOST del proyecto (via self-inspect) para
+      # montarla en el contenedor de emulación (scripts + kernel/rootfs de _build/images).
+      - ./:/project:ro
+    # NOTA: la emulación cross-ISA (ARM sobre host x86) usa TCG, NO KVM; el contenedor de
+    # emulación corre SIN privilegios ni /dev/kvm (ver CP-2/ADR-016).
     healthcheck:
       test: ["CMD-SHELL", "celery -A celery_app inspect ping -t 10 >/dev/null 2>&1 || exit 1"]
       interval: 30s

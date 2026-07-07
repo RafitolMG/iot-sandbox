@@ -80,7 +80,7 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 | CP-0 | Kickoff y andamiaje | ✅ Hecho (2026-07-07) |
 | CP-1 | Infraestructura levanta | ✅ Hecho (2026-07-07) |
 | CP-2 | Núcleo emulación ARM | ✅ Hecho (2026-07-07) |
-| CP-3 | API + cola + persistencia | ⬜ Pendiente |
+| CP-3 | API + cola + persistencia | ✅ Hecho (2026-07-07) |
 | CP-4 | Frontend (MVP completo) | ⬜ Pendiente |
 | CP-5 | Anti-evasión INetSim | ⬜ Pendiente |
 | CP-6 | Multi-arquitectura | ⬜ Pendiente |

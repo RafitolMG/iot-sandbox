@@ -72,8 +72,13 @@ que no se requieren privilegios elevados.
 - **Apagado limpio:** el invitado hace `reboot -f` con QEMU `-no-reboot` (sale solo);
   además `run_emulation.sh` impone un timeout de seguridad. No quedan procesos colgando.
 
-## Integración con el worker (CP-2, ligera)
+## Integración con el worker (CP-3)
 
-`worker/celery_app.py` expone la tarea Celery `emulate_arm`, que invoca
-`run_emulation.sh` y comprueba que se generan los 3 artefactos (sin parsear IoCs ni
-persistir: eso es CP-3). El cableado pleno worker↔Docker/host se cierra en CP-3.
+La tarea Celery `analyze` (en `worker/celery_app.py`) lanza esta emulación vía
+**Docker-out-of-Docker** (ADR-017): el worker arranca `iot-sandbox/emulation:dev` por el
+socket de Docker y ejecuta `run_emulation.sh` dentro. La muestra subida (NO confiable) se
+pasa en `SAMPLE_BIN` y se **inyecta** en el rootfs con `debugfs -w` (sin montar),
+sustituyendo `/opt/sample/test_sample`; solo se ejecuta después dentro de QEMU. Los 3
+artefactos se parsean (strace/fs por regex, pcap con scapy) y se extraen IoCs que se
+persisten en PostgreSQL. El binario de prueba horneado sigue usándose si `SAMPLE_BIN` no
+está definido (ejecución manual de CP-2).

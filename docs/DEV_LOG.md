@@ -180,3 +180,77 @@ red (SLIRP abierto en CP-2 vs aislamiento pleno en CP-5) documentado en ADR-016 
 **Siguiente:** CP-3 — `POST /samples` → Celery `analyze` → corre CP-2 → parsea artefactos →
 extrae IoCs → persiste en PostgreSQL; `GET /samples/{id}` devuelve el reporte. También cablear
 worker↔Docker/host (el hook `emulate_arm` requiere acceso a Docker desde el worker).
+
+---
+
+## CP-3 · API + cola + persistencia + IoCs — 2026-07-07
+
+**Hecho:**
+- **API (`backend/app`)** — `POST /samples` (multipart): sha256 + tamaño en streaming, guarda el
+  binario en `sample_storage` como `<sha256>`, crea `sample(status=queued)` y encola
+  `send_task("analyze", [id])`. **Idempotente por hash** (re-subida → `deduplicated:true`, sin
+  reencolar). `GET /samples/{id}` devuelve el reporte completo (estado + syscalls + flujos + fs +
+  IoCs + `counts`). `GET /samples` lista muestras (para CP-4). Validaciones: arch soportada (solo
+  `arm` en CP-3) → 400, fichero vacío → 400, tamaño máx 64 MiB → 413, id inexistente → 404.
+  Esquemas Pydantic en `schemas.py`. **`/ping-task` retirado** (ADR-015).
+- **Modelo de datos (ADR-018)** — `models.py` completo + migración Alembic **`0002_analysis_model`**:
+  añade a `sample` (`size_bytes`, `error`, `finished_at`) y crea `syscall_event`, `network_flow`,
+  `fs_event`, `ioc` (FK ON DELETE CASCADE; `ioc` UNIQUE(sample_id,type,value)).
+- **Worker (`worker/`)** — tarea Celery **`analyze`** (retira `ping`/`emulate_arm`): marca
+  `running` → detona la muestra (DooD) → parsea → persiste → `done`/`failed`+`error`+`finished_at`.
+  - `emulation.py`: **DooD (ADR-017)** — lanza `iot-sandbox/emulation:dev` por el socket de
+    Docker con el SDK; autodescubre el bind del repo y los volúmenes de muestras/artefactos
+    inspeccionando sus propios montajes; contenedor de emulación **sin privilegios**.
+  - `parsers.py`: strace/fs por regex; **pcap con `scapy==2.6.1`** (Python puro, disecciona
+    SLL + DNS); extracción y **dedup de IoCs** (ip/domain/file/port/hash; excluye la SLIRP
+    `10.0.2.0/24`).
+  - `db.py`: SQLAlchemy Core **síncrono** + `psycopg[binary]` (reescribe `+asyncpg`→`+psycopg`).
+- **Inyección de la muestra** — `run_emulation.sh` acepta `SAMPLE_BIN` e inyecta el binario en el
+  rootfs con `debugfs -w` (sin montar) sustituyendo `/opt/sample/test_sample` (0100755, uid 0).
+- **Compose** — servicio `worker`: monta `docker.sock` (DooD), `./:/project:ro` y los volúmenes;
+  env `EMULATION_TIMEOUT`, `HOST_PROJECT_DIR` (opcional). Deps nuevas fijadas: API
+  `python-multipart==0.0.20`; worker `SQLAlchemy 2.0.36`, `psycopg[binary]==3.2.3`,
+  `scapy==2.6.1`, `docker==7.1.0`.
+
+**Cómo verificar (end-to-end, sin navegador):**
+```bash
+cd ~/Proyectos/iot-sandbox
+# (requiere que CP-2 ya haya generado emulation/arm/_build/images/ y la imagen iot-sandbox/emulation:dev)
+docker compose build api worker
+docker compose up -d db valkey            # esperar healthy
+docker compose up -d api worker
+curl -s localhost:8000/health             # {"status":"ok"}
+SID=$(curl -s -F "file=@emulation/arm/overlay/opt/sample/test_sample" -F arch=arm \
+        localhost:8000/samples | python3 -c 'import sys,json;print(json.load(sys.stdin)["sample_id"])')
+# esperar a status=done (la detonación tarda ~15 s)
+until [ "$(curl -s localhost:8000/samples/$SID | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')" = done ]; do sleep 3; done
+curl -s localhost:8000/samples/$SID | python3 -m json.tool
+docker compose down
+```
+
+**Funciona / No funciona (verificado con detonación REAL vía DooD):**
+- Circuito completo: subida → cola → worker → **QEMU ARM (DooD)** → parseo → PostgreSQL → reporte.
+  `analyze` terminó en **13,4 s** (`emulation_rc=0`). Inyección de la muestra confirmada por log:
+  `debugfs` sustituye el inodo 172 por los 656316 B subidos (mode 0755, uid 0) y QEMU ejecuta
+  `execve("/opt/sample/test_sample") = 0`. Timestamps nuevos (18:17:17) ≠ artefactos de CP-2.
+- `GET /samples/1` (resumen real): `status=done`, `counts={syscalls:78, network_flows:5,
+  fs_events:4, iocs:5}`. Contenido clave:
+  - **network_flows:** `dns 10.0.2.15→10.0.2.3:53 info=c2.sandbox-test.example` y
+    `tcp 10.0.2.15→198.51.100.23:4444 (2 pkts, SYN+retx)`.
+  - **fs_events (4):** CREATE/MODIFY/CLOSE_WRITE/ATTRIB sobre `/tmp/iot_sandbox_marker.txt`.
+  - **IoCs (5):** `domain c2.sandbox-test.example` (pcap) · `file /tmp/iot_sandbox_marker.txt`
+    (fs,strace) · `hash d4d738c8…d5a5` (sample) · `ip 198.51.100.23` (pcap,strace) ·
+    `port 4444` (pcap,strace).
+- Casos límite OK: dedup (`deduplicated:true`), arch `mips`→400, fichero vacío→400, id 999→404.
+- `docker compose down` ejecutado; sin contenedores/red residuales. La emulación DooD se
+  autoelimina (`--rm`).
+
+**Decisiones abiertas (→ DECISIONS.md):** **ADR-017** (DooD, con riesgo de `docker.sock`
+documentado + mitigaciones) y **ADR-018** (modelo de datos + parseo) registradas como
+**ACEPTADA** (micro-decisiones de implementación). Sin decisiones humanas pendientes. Nota de
+riesgo: `docker.sock` en el worker = root-en-host; mitigado (imagen fija, sin privilegios, la
+muestra vive en QEMU). Endurecimiento (socket-proxy / rootless / runner dedicado) queda para el
+apartado de limitaciones del TFM.
+
+**Siguiente:** CP-4 — frontend Vue 3 (subida + listado + vista de reporte). El contrato REST
+(`POST/GET /samples`) y el modelo de datos ya están cerrados.

@@ -63,6 +63,25 @@ cp "$ROOTFS_SRC" "$ROOTFS"
 # La tarjeta SD de vexpress-a9 exige un tamaño potencia de 2; el ext2 (200M) se aloja
 # en un dispositivo de 256M (el fs conserva su tamaño interno; el resto queda sin usar).
 qemu-img resize -f raw "$ROOTFS" 256M >/dev/null
+
+# --- Inyeccion de la muestra (CP-3) --------------------------------------
+# Si SAMPLE_BIN apunta a un binario, SUSTITUYE el /opt/sample/test_sample horneado por
+# la muestra subida (tratada como NO confiable). Se escribe en el ext2 con `debugfs -w`
+# (sin montar la imagen, sin privilegios) y se marca ejecutable+root. La muestra solo se
+# ejecuta despues DENTRO de QEMU (nunca en este contenedor ni en el host). Si SAMPLE_BIN
+# no esta definido se usa el binario de prueba horneado (comportamiento de CP-2).
+if [ -n "${SAMPLE_BIN:-}" ] && [ -f "$SAMPLE_BIN" ]; then
+    echo "== inyectando muestra: $SAMPLE_BIN -> /opt/sample/test_sample (debugfs, sin montar) =="
+    debugfs -w -R "rm /opt/sample/test_sample"                 "$ROOTFS" >/dev/null 2>&1 || true
+    debugfs -w -R "write $SAMPLE_BIN /opt/sample/test_sample"  "$ROOTFS" >/dev/null 2>&1
+    debugfs -w -R "sif /opt/sample/test_sample mode 0100755"   "$ROOTFS" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /opt/sample/test_sample uid 0"          "$ROOTFS" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /opt/sample/test_sample gid 0"          "$ROOTFS" >/dev/null 2>&1 || true
+    debugfs -R "stat /opt/sample/test_sample" "$ROOTFS" 2>/dev/null | grep -Ei 'mode|size' | head -n 2 || true
+elif [ -n "${SAMPLE_BIN:-}" ]; then
+    echo "WARN: SAMPLE_BIN='$SAMPLE_BIN' no existe; se usa el binario de prueba horneado"
+fi
+
 SERIAL="$OUT/serial.log"
 
 echo "== arrancando QEMU vexpress-a9 (timeout ${TIMEOUT}s, net: $NETOPT) =="
