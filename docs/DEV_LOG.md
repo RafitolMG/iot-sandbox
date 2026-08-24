@@ -687,3 +687,29 @@ hacer, y es la continuación natural: un endpoint que haga streaming de `trace.l
 vista en el frontend, para ver la traza desde el navegador y no desde el fichero.
 
 **Siguiente:** llevar CP-5, CP-7 y CP-8 al capítulo 4 de la memoria.
+
+---
+
+## Nota · El sha256 de la muestra deja de contar como IoC — 2026-08-24
+
+Salió revisando la interfaz con los datos reales de CP-7: el hash aparecía **tres veces en la
+misma pantalla** (nombre del fichero, campo de metadatos y tarjeta de IoC). Peor que la
+redundancia visual era el efecto sobre la medida: toda muestra exhibía al menos un indicador
+por el mero hecho de existir, de modo que las cuatro que ni siquiera llegaron a ejecutarse
+figuraban con «1 IoC» cuando lo cierto es que no produjeron ninguno.
+
+El sha256 es la **identidad** de la muestra, no un hallazgo del análisis, y sigue estando en
+el reporte, en el nombre del fichero y en la tabla `sample`. Se deja de registrar como IoC:
+`parse_artifacts` ya no lo añade y el frontend no lo lista. Los IoCs pasan a ser cuatro tipos
+—ip, dominio, puerto, fichero—, todos extraídos del comportamiento observado.
+
+**Efecto en las cifras ya publicadas.** Cada muestra tenía exactamente un IoC de tipo hash
+(verificado sobre las dos tandas), así que **las cifras de IoC de las entradas anteriores de
+esta bitácora incluyen ese uno de más**. Las del capítulo 4 de la memoria ya están corregidas:
+binario de prueba 5 → 4; medias por familia Mirai 6,8 → 5,8 y Gafgyt 3,0 → 2,0; por ISA
+arm 7,8 → 6,8, mips y mipsel 5,0 → 4,0, x86_64 4,5 → 3,5; muestra más rica 26 → 25. La fila
+de cobertura del resumen criptográfico (100 %) desaparece de la tabla, por dejar de ser una
+medida con sentido.
+
+Se purgaron también los 20 IoCs de tipo hash que quedaban en la base de tandas anteriores,
+para que los datos vivos coincidan con la nueva semántica y con lo que dice la memoria.

@@ -44,10 +44,10 @@ const shown = computed(() => ({
   fs: report.value?.fs_events?.length ?? 0,
 }))
 
-const TYPE_LABEL = { ip: 'IP', domain: 'Dominio', file: 'Fichero', port: 'Puerto', hash: 'Hash' }
+const TYPE_LABEL = { ip: 'IP', domain: 'Dominio', file: 'Fichero', port: 'Puerto' }
 
 // Group IoCs by type for a scannable layout (IPs / domains first — most actionable).
-const TYPE_ORDER = ['domain', 'ip', 'port', 'file', 'hash']
+const TYPE_ORDER = ['domain', 'ip', 'port', 'file']
 const iocGroups = computed(() => {
   const by = {}
   for (const i of report.value?.iocs ?? []) (by[i.type] ??= []).push(i)

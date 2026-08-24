@@ -7,6 +7,10 @@ base de datos y en indicadores de compromiso (IoCs) deduplicados:
     capture.pcap   -> network_flow[]   + IoCs (ip, domain, port)   [scapy]
     fs_events.log  -> fs_event[]       + IoCs (file)
 
+El sha256 de la propia muestra NO se registra como IoC: es su identidad, ya viaja en el
+reporte y en el nombre del fichero. Contarlo inflaba el total en uno por muestra y hacía
+que una muestra que ni siquiera llegó a ejecutarse apareciese con "1 IoC".
+
 Se usa **scapy** (2.6.x) para el pcap: es Python puro (no requiere tshark en el worker),
 disecciona nativamente el linktype "cooked" (SLL/SLLv2) de `tcpdump -i any` y extrae los
 nombres de consulta DNS necesarios para los IoCs de dominio.
@@ -263,7 +267,6 @@ def parse_artifacts(
     strace_path: str | None,
     pcap_path: str | None,
     fs_path: str | None,
-    sha256: str | None = None,
 ) -> ParseResult:
     """Parsea los 3 artefactos y devuelve eventos + IoCs deduplicados."""
     res = ParseResult()
@@ -284,10 +287,6 @@ def parse_artifacts(
 
     if pcap_path:
         parse_pcap(pcap_path, res)
-
-    # La identidad de la muestra (sha256) es un IoC de tipo hash.
-    if sha256:
-        res.add_ioc("hash", sha256, "sample")
 
     res.limpiar_nul()
     return res

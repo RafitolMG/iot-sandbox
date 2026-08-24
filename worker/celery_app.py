@@ -132,7 +132,7 @@ def analyze(self, sample_id: int) -> dict:
                 f"la emulación no produjo strace.log (rc={emu.get('exit_code')}).\n{tail}"
             )
 
-        parsed = parse_artifacts(strace_p, pcap_p, fs_p, sha256=sha256)
+        parsed = parse_artifacts(strace_p, pcap_p, fs_p)
         counts = _persist(sample_id, parsed)
         _set_status(sample_id, "done", finished_at=_now(), error=None)
         return {"sample_id": sample_id, "status": "done", "counts": counts,
