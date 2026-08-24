@@ -18,8 +18,10 @@ Flujo completo: subir binario ARM → QEMU-ARM full-system → telemetría → I
 - CP-6 Registro de perfiles por ISA + autodetección ELF; **ARM + MIPS + MIPSEL + x86_64**
   verificados end-to-end ✅
 
-## Hito 4 — Evaluación (material para el TFM)
-- CP-7 Detonación de muestras reales + métricas de IoCs ⬜
+## Hito 4 — Evaluación (material para el TFM) ✅ COMPLETO (2026-08-24)
+- CP-7 Detonación de muestras reales + métricas de IoCs ✅ — 29 muestras (Mirai/Gafgyt),
+  19 detonadas en las 4 ISAs; 15 se ejecutaron. Dos defectos corregidos que solo
+  aparecen con malware real.
 
 ---
 

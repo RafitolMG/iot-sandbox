@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.archdetect import detect_arch_from_bytes, is_known_unsupported
+from app.archdetect import detect_arch_from_bytes, is_elf, is_known_unsupported
 from app.celery_client import celery_client
 from app.config import settings
 from app.db import get_session
@@ -93,9 +93,13 @@ async def upload_sample(
         detected = detect_arch_from_bytes(head)
         if detected is None:
             tmp_path.unlink(missing_ok=True)
+            motivo = (
+                "es un ELF pero su arquitectura (e_machine) no se reconoce"
+                if is_elf(head) else "no parece un ELF"
+            )
             raise HTTPException(
                 status_code=400,
-                detail="no se pudo detectar la arquitectura (¿no es un ELF?); "
+                detail=f"no se pudo detectar la arquitectura: {motivo}; "
                 "especifica 'arch' explícitamente "
                 f"(soportadas: {', '.join(settings.supported_arches)})",
             )

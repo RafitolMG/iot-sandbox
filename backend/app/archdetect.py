@@ -20,23 +20,54 @@ ELFDATA2LSB = 1  # little-endian
 ELFDATA2MSB = 2  # big-endian
 
 # e_machine (subset relevante para IoT)
-_EM_386 = 3
 _EM_MIPS = 8
 _EM_ARM = 40
-_EM_X86_64 = 62
-_EM_AARCH64 = 183
 
-# Nombres legibles de ISAs detectables pero SIN perfil en la sandbox (para el mensaje 400).
+# Resto de e_machine que aparecen en el malware IoT real. No tienen perfil de emulación,
+# pero conviene reconocerlas: si no, un ELF de SPARC o m68k se confunde con "esto no es un
+# ELF" y el rechazo dice una cosa por otra. Vistas todas en muestras de MalwareBazaar.
+_EM_NOMBRES = {
+    2: "sparc",
+    3: "i386",
+    4: "m68k",
+    20: "ppc",
+    21: "ppc64",
+    42: "sh",          # SuperH (SH4)
+    43: "sparcv9",
+    62: "x86_64",
+    93: "arc",         # ARCompact / ARC700
+    183: "aarch64",
+    243: "riscv",
+}
+
+# Descripción legible de las ISAs que se reconocen pero no se pueden emular (mensaje 400).
 _KNOWN_UNSUPPORTED = {
     "i386": "x86 de 32 bits",
     "aarch64": "ARM de 64 bits",
+    "sparc": "SPARC de 32 bits",
+    "sparcv9": "SPARC de 64 bits",
+    "m68k": "Motorola 68000",
+    "ppc": "PowerPC de 32 bits",
+    "ppc64": "PowerPC de 64 bits",
+    "sh": "SuperH",
+    "arc": "Synopsys ARC",
+    "riscv": "RISC-V",
 }
 
 
+def is_elf(head: bytes) -> bool:
+    """True si `head` empieza por el magic de ELF."""
+    return len(head) >= 20 and head[:4] == b"\x7fELF"
+
+
 def detect_arch_from_bytes(head: bytes) -> str | None:
-    """Devuelve el nombre de ISA ('arm'|'mips'|'mipsel'|'x86_64'|'i386'|'aarch64')
-    o None si `head` no es un ELF reconocible."""
-    if len(head) < 20 or head[:4] != b"\x7fELF":
+    """Nombre de la ISA del ELF, o None si no es un ELF o su e_machine es desconocido.
+
+    Devuelve el nombre de perfil ('arm'|'mips'|'mipsel'|'x86_64') cuando la sandbox
+    puede emularla, y el nombre de la ISA a secas ('sparc', 'm68k'…) cuando solo se
+    reconoce. Para distinguir "no es un ELF" de "ELF que no sé emular", usa `is_elf`.
+    """
+    if not is_elf(head):
         return None
     ei_data = head[5]
     endian = "<" if ei_data == ELFDATA2LSB else ">"
@@ -47,13 +78,7 @@ def detect_arch_from_bytes(head: bytes) -> str | None:
     if e_machine == _EM_MIPS:
         # EM_MIPS es el mismo para ambos endianness; los diferencia EI_DATA.
         return "mips" if ei_data == ELFDATA2MSB else "mipsel"
-    if e_machine == _EM_X86_64:
-        return "x86_64"
-    if e_machine == _EM_386:
-        return "i386"
-    if e_machine == _EM_AARCH64:
-        return "aarch64"
-    return None
+    return _EM_NOMBRES.get(e_machine)
 
 
 def is_known_unsupported(arch: str | None) -> bool:

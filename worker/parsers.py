@@ -44,6 +44,23 @@ class ParseResult:
     # corroboran (p.ej. una IP vista en strace Y en el pcap -> {"strace","pcap"}).
     iocs: dict[tuple[str, str], set[str]] = field(default_factory=dict)
 
+    def limpiar_nul(self) -> None:
+        """Quita los bytes NUL de todo lo que va a la base de datos.
+
+        PostgreSQL no admite NUL en columnas de texto y aborta la transacción entera, así
+        que un solo byte en una traza de 250.000 syscalls tiraba el análisis completo. El
+        malware real los produce a menudo: buffers binarios en `sendto`, rutas construidas
+        a mano, cadenas ofuscadas. Se limpia aquí, en un único punto, y no en cada parser.
+        """
+        def limpio(v):
+            return v.replace("\x00", "") if isinstance(v, str) else v
+
+        for filas in (self.syscalls, self.network_flows, self.fs_events):
+            for fila in filas:
+                for k, v in fila.items():
+                    fila[k] = limpio(v)
+        self.iocs = {(limpio(t), limpio(v)): s for (t, v), s in self.iocs.items()}
+
     def add_ioc(self, type_: str, value: str, source: str) -> None:
         if not value:
             return
@@ -272,4 +289,5 @@ def parse_artifacts(
     if sha256:
         res.add_ioc("hash", sha256, "sample")
 
+    res.limpiar_nul()
     return res

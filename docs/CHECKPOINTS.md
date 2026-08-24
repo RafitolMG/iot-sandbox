@@ -93,4 +93,4 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 | CP-4 | Frontend (MVP completo) | ✅ Hecho (2026-07-07) — **🏁 Hito 1 / MVP COMPLETO** |
 | CP-5 | Anti-evasión INetSim | ✅ Hecho (2026-08-24) — ARM y MIPS verificados |
 | CP-6 | Multi-arquitectura | ✅ Hecho (2026-07-07) — ARM + MIPS + MIPSEL + x86_64 |
-| CP-7 | Evaluación malware real | ⬜ Pendiente |
+| CP-7 | Evaluación malware real | ✅ Hecho (2026-08-24) — 29 muestras, 4 ISAs |

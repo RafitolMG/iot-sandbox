@@ -511,3 +511,99 @@ aislamiento cerrado de cara a CP-7.
 **Siguiente:** **Hito 2 COMPLETO.** Queda **CP-7 (evaluación con malware real)**, que requiere
 que Rafael aporte las muestras y lo autorice. En la memoria, CP-5 deja obsoleta la limitación
 de §4.3.4 y cumple el objetivo específico 3.
+
+---
+
+## CP-7 · Evaluación con malware real — 2026-08-24
+
+**Corpus:** 29 muestras aportadas por Rafael desde MalwareBazaar (15 etiquetadas Mirai, 9
+Gafgyt, 5 sin clasificar), descargadas en ZIP con contraseña y extraídas sin permiso de
+ejecución. Los hashes y su procedencia quedan en `manifest.csv`, fuera del repo.
+
+**Hecho:**
+- Detonación por lotes de las 19 muestras con ISA soportada, con simulación de red activa
+  (CP-5) y ventana de 120 s. 30,7 min de reloj. Las 10 restantes quedaron fuera de alcance
+  por ISA sin perfil.
+- Arreglados dos defectos que **solo se manifiestan con malware real** (detalle abajo).
+- Arnés ampliado con `recoger` (rehace los resultados leyendo de la API, sin volver a
+  detonar) e `informe` (remaqueta desde CSV), para no repetir media hora de emulación cada
+  vez que cambia una métrica.
+
+**Cómo verificar:**
+```bash
+python3 evaluation/harness.py inventario ~/Descargas/muestras_cp7
+python3 evaluation/harness.py lote      ~/Descargas/muestras_cp7 --salida resultados/con-sim
+python3 evaluation/harness.py recoger   ~/Descargas/muestras_cp7 --salida resultados/con-sim
+```
+
+**Resultados (con simulación de red):**
+
+| | n | Ejecutan | syscalls | flujos | fs | IoCs |
+|---|---:|---:|---:|---:|---:|---:|
+| Mirai | 12 | 100% | 5993 | 3,2 | 2,1 | 6,8 |
+| Gafgyt | 3 | 100% | 174612 | 1,3 | 0,7 | 3,0 |
+| sin clasificar | 4 | 0% | — | — | — | — |
+| **arm** | 10 | 60% | 4660 | 4,0 | 4,2 | 7,8 |
+| **mips** | 3 | 100% | 4956 | 2,0 | 0,0 | 5,0 |
+| **mipsel** | 2 | 100% | 7418 | 2,0 | 0,0 | 5,0 |
+| **x86_64** | 4 | 100% | 134524 | 2,0 | 0,5 | 4,5 |
+
+19/19 análisis sin error; **15/19 (79%) llegaron a ejecutarse** en el invitado. La distinción
+importa: `status=done` solo dice que la tubería terminó, no que la muestra corriera.
+
+**Anti-evasión (CP-5) sobre malware real.** Las Mirai conectan a `64.89.163.215:666`
+—puerto clásico de la familia— y el pcap del invitado registra **8 paquetes de ida y 7 de
+vuelta**: el handshake se completa contra el catch-all de INetSim. Sin CP-5 serían SYN
+perdidos. Es la demostración de la contramedida sobre muestra real, no sobre el binario de
+prueba.
+
+**Funciona / No funciona:**
+- **Las 4 ISAs detonan malware real.** El pico: una Gafgyt de x86_64 con **266.728 syscalls**
+  en 134 s (bucle de escaneo), y una muestra ARM con **26 IoCs, 16 flujos y 25 eventos de
+  fichero**. Frente a las 74 syscalls del binario benigno, la telemetría aguanta el volumen
+  real sin perder datos.
+- **4 muestras no se ejecutaron**, todas ARM, y el motivo NO es de la sandbox:
+  - 3 son **ELF corruptos**: sus segmentos `LOAD` apuntan más allá del final del fichero
+    (una declara 268.924 bytes en un fichero de 45.804). `execve` devuelve `EFAULT`. Es una
+    técnica anti-análisis conocida —inflar `p_filesz` para reventar parsers— o muestras
+    truncadas en origen.
+  - 1 usa la **OABI de ARM** (EABI versión 0), que el kernel del invitado no soporta:
+    Buildroot no activa `CONFIG_OABI_COMPAT`. Ejecuta 4 syscalls y muere.
+  El sistema las inyecta, el invitado las rechaza y el informe lo refleja: no se cae.
+- **Cobertura de IoCs sobre las que ejecutaron:** ip 93%, puerto 93%, hash 100%, fichero 20%,
+  **dominio 0%**.
+- El **0% de dominios no es un fallo del extractor**: estas variantes llevan el C2 como IP
+  fija. El strace enseña `socket(AF_INET, SOCK_DGRAM)` + `connect` a 8.8.8.8:53 y acto
+  seguido `close(3)` **sin enviar nada** — cero paquetes UDP en todo el pcap. La ruta de
+  resolución existe en el código pero no se usa.
+- El **20% de eventos de fichero** sí señala un límite propio: `telemetry_init` vigila con
+  inotify solo `/tmp`, `/etc` y `/root`. Mirai borra su propio binario en `/opt/sample` y
+  escribe en `/dev/watchdog`, fuera de vigilancia.
+
+**Defectos corregidos (los dos invisibles con el binario benigno):**
+1. **Bytes NUL en la traza tumbaban el análisis entero.** PostgreSQL no admite NUL en
+   columnas de texto y aborta la transacción completa: un solo byte en una traza de 250.000
+   syscalls tiraba todo el informe (`psycopg.DataError`). El malware real los produce a
+   diario (buffers binarios en `sendto`, cadenas ofuscadas). Se limpian ahora en
+   `ParseResult.limpiar_nul()`, un único punto antes de persistir. Reanalizada la muestra
+   afectada: 6843 syscalls, correcta.
+2. **`archdetect` confundía "no es un ELF" con "ELF de ISA desconocida".** 6 muestras se
+   reportaban como no-ELF siendo ELF válidos de **SPARC, PowerPC, m68k y ARC700**, y el 400
+   de la API decía «¿no es un ELF?», que era falso. Ahora reconoce once arquitecturas,
+   `is_elf()` separa ambos casos y el rechazo dice la verdad.
+   El corpus real tiene **nueve ISAs distintas en 29 muestras** (arm 10, i386 4, x86_64 4,
+   mips 3, sparc 3, mipsel 2, m68k 1, ppc 1, arc 1): argumento medido a favor de ampliar el
+   registro de perfiles (ADR-020), que es donde apunta el trabajo futuro.
+
+**Corregido también en el arnés:** la columna de C2 emparejaba el primer IoC de tipo `ip` con
+el primero de tipo `port`, que provienen de syscalls distintas — daba `64.89.163.215:53`
+cuando el destino real era `:666` (el 53 era del resolutor). Ahora sale del flujo saliente
+con más tráfico. Y la tasa de éxito distingue «la tubería terminó» de «la muestra ejecutó».
+
+**Decisiones abiertas (→ DECISIONS.md):** ninguna nueva. Dos mejoras identificadas y no
+hechas, a decidir: ampliar el ámbito de inotify más allá de `/tmp`, `/etc` y `/root`; y
+añadir perfiles de ISA para sparc/ppc/m68k/sh4.
+
+**Siguiente:** repetir la tanda con `SANDBOX_NET_SIM=0` y cruzar con `harness comparar` para
+cuantificar la aportación de CP-5 sobre malware real. Requiere base limpia
+(`docker compose down -v`), así que lo decide Rafael.
