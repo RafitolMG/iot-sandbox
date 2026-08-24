@@ -84,3 +84,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# --- Memoria del TFM ------------------------------------------------------
+# Borradores de la memoria (.docx/.md) y comentarios del tutor. El agente SÍ debe
+# leer esta carpeta como contexto, pero queda FUERA de git a propósito.
+MEMORIA/
