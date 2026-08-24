@@ -23,6 +23,10 @@ Flujo completo: subir binario ARM → QEMU-ARM full-system → telemetría → I
   19 detonadas en las 4 ISAs; 15 se ejecutaron. Dos defectos corregidos que solo
   aparecen con malware real.
 
+## Hito 5 — Observabilidad ✅ COMPLETO (2026-08-24)
+- CP-8 Traza en vivo por un segundo puerto serie ✅ — y recupera ~28% más traza que la
+  extracción post-mortem en detonaciones cortadas por timeout (ADR-023).
+
 ---
 
 ## Mapeo a los capítulos del TFM

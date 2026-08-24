@@ -85,6 +85,9 @@ Thumbs.db
 *.swo
 *~
 
+# Salida de pruebas manuales de emulación (run_emulation.sh con OUTDIR dentro del repo).
+tmp/
+
 # --- Evaluación (CP-7) ----------------------------------------------------
 # Resultados de las tandas y cualquier muestra que acabe aquí por descuido.
 evaluation/resultados/

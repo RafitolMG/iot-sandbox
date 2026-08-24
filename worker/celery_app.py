@@ -32,6 +32,7 @@ SANDBOX_NET_RESTRICT = os.environ.get("SANDBOX_NET_RESTRICT", "0") == "1"
 SANDBOX_NET_SIM = os.environ.get("SANDBOX_NET_SIM", "0") == "1"
 SANDBOX_SIM_IP = os.environ.get("SANDBOX_SIM_IP", "")
 SANDBOX_SIM_DNS_IP = os.environ.get("SANDBOX_SIM_DNS_IP", "")
+SANDBOX_LIVE_TRACE = os.environ.get("SANDBOX_LIVE_TRACE", "0") == "1"
 
 app = Celery("iot_sandbox_worker", broker=BROKER_URL, backend=RESULT_BACKEND)
 app.conf.update(
@@ -118,6 +119,7 @@ def analyze(self, sample_id: int) -> dict:
             net_sim=SANDBOX_NET_SIM,
             sim_ip=SANDBOX_SIM_IP,
             sim_dns_ip=SANDBOX_SIM_DNS_IP,
+            live_trace=SANDBOX_LIVE_TRACE,
         )
         out = emu["out_dir"]
         strace_p = os.path.join(out, "strace.log")

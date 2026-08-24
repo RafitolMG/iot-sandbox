@@ -72,6 +72,23 @@ INOTIFY_PID=$!
 # Dar tiempo a que las sondas estén realmente escuchando/capturando.
 sleep 3
 
+# --- 3b. traza en vivo (CP-8) --------------------------------------------
+# Si run_emulation.sh pidio traza en vivo, pasa sandbox.trace=<tty> por la linea de
+# comandos del kernel. Volcamos ahi el strace segun se escribe, para que el host lo vea
+# crecer sin esperar a la extraccion con debugfs.
+TRACE_TTY=""
+for arg in $(cat /proc/cmdline 2>/dev/null); do
+    case "$arg" in sandbox.trace=*) TRACE_TTY="${arg#sandbox.trace=}" ;; esac
+done
+if [ -n "$TRACE_TTY" ] && [ -c "/dev/$TRACE_TTY" ]; then
+    log "traza en vivo -> /dev/$TRACE_TTY"
+    : > "$TELDIR/strace.log"
+    tail -f "$TELDIR/strace.log" > "/dev/$TRACE_TTY" 2>/dev/null &
+    TAIL_PID=$!
+elif [ -n "$TRACE_TTY" ]; then
+    log "WARN: se pidio traza en vivo pero /dev/$TRACE_TTY no existe"
+fi
+
 # --- 4. ejecucion del binario de prueba bajo strace ----------------------
 if [ -x "$SAMPLE" ]; then
     log "ejecutando muestra bajo strace: $SAMPLE"
@@ -87,6 +104,7 @@ sleep 3                                   # margen para que tcpdump/inotify vuel
 log "deteniendo sondas de telemetria"
 kill -INT "$TCPDUMP_PID" 2>/dev/null      # SIGINT: tcpdump cierra el pcap correctamente
 kill "$INOTIFY_PID"      2>/dev/null
+[ -n "${TAIL_PID:-}" ] && kill "$TAIL_PID" 2>/dev/null
 sleep 2
 sync
 

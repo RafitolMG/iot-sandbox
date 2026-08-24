@@ -100,6 +100,7 @@ def run_emulation(
     net_sim: bool = False,
     sim_ip: str = "",
     sim_dns_ip: str = "",
+    live_trace: bool = False,
 ) -> dict:
     """Detona la muestra en la sandbox de la ISA `arch` (DooD) y deja los artefactos en un volumen.
 
@@ -130,6 +131,9 @@ def run_emulation(
         "IN_SANDBOX": "1",                        # salta la re-ejecución en Docker de run_emulation.sh
         "SAMPLE_BIN": f"{SAMPLES_DEST}/{sha256}",  # binario a inyectar en el rootfs (debugfs)
         "SANDBOX_NET_RESTRICT": "1" if net_restrict else "0",
+        # Traza en vivo por el segundo puerto serie (CP-8). Ralentiza al invitado, así que
+        # se deja apagada en las tandas de evaluación.
+        "SANDBOX_LIVE_TRACE": "1" if live_trace else "0",
         "QEMU_AUDIO_DRV": "none",
     }
 

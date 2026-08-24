@@ -607,3 +607,83 @@ añadir perfiles de ISA para sparc/ppc/m68k/sh4.
 **Siguiente:** repetir la tanda con `SANDBOX_NET_SIM=0` y cruzar con `harness comparar` para
 cuantificar la aportación de CP-5 sobre malware real. Requiere base limpia
 (`docker compose down -v`), así que lo decide Rafael.
+
+---
+
+## CP-7 (addendum) · Comparativa con y sin simulación de red — 2026-08-24
+
+Segunda tanda de las mismas 19 muestras, esta vez **sin** servicios simulados. Se usó
+`SANDBOX_NET_RESTRICT=1` (SLIRP `restrict=on`) y **no** `SANDBOX_NET_SIM=0`: apagar la
+simulación a secas devuelve la detonación al bridge por defecto, desde donde el invitado
+alcanza Internet de verdad — con Mirai eso significa escanear terceros y contactar con su C2
+auténtico. `restrict=on` es además el baseline correcto: es el escenario que describe §2.2.4
+de la memoria, la sandbox que aísla estrictamente y el malware detecta que no hay red.
+
+Al montarlo salió que `SANDBOX_NET_RESTRICT` **nunca llegaba al worker**: `celery_app.py` lo
+leía del entorno pero `docker-compose.yml` no lo declaraba. Cabo suelto de CP-2 que nadie
+había ejercitado. Ya está enchufado.
+
+**Resultado (métrica de handshake, sobre los pcaps del invitado):**
+
+| escenario | muestras | SYN enviados | SYN-ACK recibidos | consultas DNS |
+|---|---:|---:|---:|---:|
+| Sin simulación (`restrict=on`) | 19 | **231** | **0** | 0 |
+| Con INetSim | 20 | 14 | **14** | 0 |
+
+Sin simulación, 231 intentos de conexión y **ninguno contestado**. Con INetSim, 14 intentos y
+**los 14 completan el handshake**. Es la cuantificación de la contramedida de CP-5 sobre
+malware real.
+
+**Cuidado con la métrica ingenua.** El número de flujos BAJA con simulación (media 13,7 → 2,2)
+y leído sin contexto parece que INetSim reste. Es al revés: sin servicios que respondan, el
+bot reintenta sin parar y genera muchos flujos muertos; con ellos conecta a la primera y se
+asienta en su conversación con el C2. Lo que hay que contar es **conexiones completadas**, no
+flujos. Conviene que esto quede escrito en §4.3, porque es un error fácil de cometer.
+
+Las consultas DNS son 0 en ambos escenarios, coherente con lo ya visto: estas variantes llevan
+el C2 como IP fija y cierran el socket UDP sin enviar nada.
+
+---
+
+## CP-8 · Traza en vivo por un segundo puerto serie — 2026-08-24
+
+**Hecho:**
+- Segundo UART por perfil (`P_TRACE_TTY`: `ttyAMA1` en ARM, `ttyS1` en el resto). Con
+  `SANDBOX_LIVE_TRACE=1`, `run_emulation.sh` añade `-serial file:<OUT>/trace.live` y pasa
+  `sandbox.trace=<tty>` al kernel; `telemetry_init` lo lee de `/proc/cmdline` y vuelca ahí el
+  strace con `tail -f`. Detalle y alternativas descartadas en **ADR-023**.
+- `telemetry_init` se **inyecta en caliente** con `debugfs` desde `emulation/common/overlay/`,
+  como ya se hacía con la muestra: tocar el init del invitado ya no obliga a reconstruir los
+  cuatro rootfs (~17 min cada uno).
+- Tapado otro hueco: `SAMPLE_BIN` no se propagaba al contenedor en el uso manual del script
+  (solo el worker lo pasaba, por la API de Docker), así que cualquier prueba manual detonaba
+  en realidad el binario benigno horneado. Ahora se monta el directorio de la muestra en
+  solo lectura y se reescribe la ruta.
+
+**Cómo verificar:**
+```bash
+SANDBOX_LIVE_TRACE=1 SAMPLE_BIN=/ruta/a/muestra.elf \
+  emulation/run_emulation.sh arm tmp/prueba 100 &
+watch -n2 'wc -l tmp/prueba/trace.live'      # debe crecer mientras corre
+```
+
+**Funciona / No funciona:**
+- **Va en vivo de verdad** con muestras reales. Mirai ARM, midiendo cada 12 s:
+  2164 → 3056 → 3956 → 5025 → 6094 → 6996 → 8066 líneas. Unas 900-1000 líneas por intervalo,
+  continuo.
+- Con muestras **muy tranquilas** llega a saltos: strace bufferiza en bloques de ~8 KB cuando
+  escribe a un fichero normal, así que una sonda que hace un syscall cada 5 s tarda en llenar
+  el búfer. Irrelevante para el caso de uso: el malware real satura el búfer al instante.
+- **La traza en vivo llega MÁS LEJOS que el artefacto extraído**: 8781 líneas frente a 6281,
+  30 s más de actividad, en la misma detonación. `debugfs` lee el ext2 después de matar QEMU
+  por timeout y pierde lo que strace no volcó ni el invitado sincronizó. Como el malware real
+  nunca termina solo, **toda muestra real acaba por timeout: los recuentos de CP-7 son cotas
+  inferiores**. Quitando los `\r` que mete el tty serie, las líneas comunes son idénticas.
+- **Opt-in, y debe seguir apagado en evaluación**: sacar cientos de miles de syscalls por un
+  UART emulado ralentiza al invitado y altera lo que se mide.
+
+**Decisiones abiertas (→ DECISIONS.md):** **ADR-023** registrada como **ACEPTADA**. Queda sin
+hacer, y es la continuación natural: un endpoint que haga streaming de `trace.live` (SSE) y una
+vista en el frontend, para ver la traza desde el navegador y no desde el fichero.
+
+**Siguiente:** llevar CP-5, CP-7 y CP-8 al capítulo 4 de la memoria.

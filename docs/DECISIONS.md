@@ -449,6 +449,46 @@ handshake completo).
 
 ---
 
+### ADR-023 — Traza en vivo por un segundo puerto serie (CP-8) · ACEPTADA
+
+**Contexto:** hasta CP-7 no había forma de ver nada mientras la muestra corría. Los tres
+artefactos se escriben DENTRO del invitado y solo se extraen con `debugfs` cuando QEMU ya ha
+muerto: durante la detonación el operador solo ve el estado `running`.
+
+**Decisión.** Un segundo puerto serie, dirigido por el registro de perfiles (ADR-020): cada
+`profiles/<arch>.env` declara su UART en `P_TRACE_TTY` (`ttyAMA1` en ARM, `ttyS1` en el
+resto). Con `SANDBOX_LIVE_TRACE=1`, `run_emulation.sh` añade
+`-serial file:<OUT>/trace.live` y pasa `sandbox.trace=<tty>` en la línea de comandos del
+kernel; `telemetry_init` lo lee de `/proc/cmdline` y vuelca ahí el strace con `tail -f`.
+Añadir una ISA sigue siendo declarar un fichero de perfil.
+
+**Por qué serie y no virtio-9p.** 9p daría los artefactos en vivo directamente sobre el host,
+más limpio, pero exige soporte 9p en cada kernel: reconstruir los cuatro rootfs de Buildroot,
+~17 min cada uno. El puerto serie no toca los kernels; los cuatro ya traen UARTs de sobra
+(`CONFIG_SERIAL_8250_NR_UARTS=4` en mips/mipsel/x86_64, PL011 en ARM).
+
+**Sincronización del init.** `/sbin/telemetry_init` iba horneado en el rootfs, así que tocarlo
+obligaba a reconstruir las cuatro imágenes. Ahora `run_emulation.sh` lo inyecta en caliente
+con `debugfs` desde `emulation/common/overlay/`, igual que hace con la muestra: el init del
+invitado queda siempre sincronizado con el repo y el ciclo de prueba baja de 17 min a segundos.
+
+**Opt-in a propósito.** Sacar cientos de miles de syscalls por un UART emulado ralentiza al
+invitado y altera lo que se está midiendo. **No debe activarse en tandas de evaluación**, o
+los recuentos dejan de ser comparables entre ejecuciones.
+
+**Efecto secundario que resultó ser el más valioso.** La traza en vivo llega **más lejos que
+el artefacto extraído**: medido sobre una Mirai de ARM, 8781 líneas frente a 6281, 30 segundos
+más de actividad. La causa es que `debugfs` lee el ext2 después de matar QEMU por timeout, y
+lo que strace no había volcado ni el invitado sincronizado se pierde. Como el malware real
+nunca termina por sí solo, **toda** muestra real acaba por timeout: los recuentos de CP-7 son,
+por tanto, cotas inferiores. Quitando los `\r` que introduce el tty serie, las líneas comunes
+son idénticas byte a byte.
+
+**Impacto en el TFM:** aporta a Cap. 4.2 un componente de observación en vivo y, sobre todo,
+una limitación medida de la extracción post-mortem que conviene declarar en §4.3.
+
+---
+
 ---
 
 ## Cómo se conecta con la "memoria" del TFM

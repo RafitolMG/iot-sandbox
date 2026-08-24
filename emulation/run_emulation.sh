@@ -46,9 +46,19 @@ if [ -z "${IN_SANDBOX:-}" ]; then
     OUT_HOST="${2:-$REPO/emulation/$ARCH/_build/artifacts}"
     mkdir -p "$OUT_HOST"
     OUT_IN="/project/${OUT_HOST#$REPO/}"
-    exec docker run --rm -u 1000:1000 -e IN_SANDBOX=1 \
+    # SAMPLE_BIN suele apuntar FUERA del repo (una carpeta de muestras). Se monta su
+    # directorio en solo lectura y se reescribe la ruta, para que el uso manual del script
+    # pueda inyectar una muestra igual que hace el worker por la API de Docker.
+    SAMPLE_ARGS=""
+    if [ -n "${SAMPLE_BIN:-}" ] && [ -f "$SAMPLE_BIN" ]; then
+        SAMPLE_DIR="$(cd "$(dirname "$SAMPLE_BIN")" && pwd)"
+        SAMPLE_ARGS="-v $SAMPLE_DIR:/samples_host:ro -e SAMPLE_BIN=/samples_host/$(basename "$SAMPLE_BIN")"
+    fi
+    # shellcheck disable=SC2086
+    exec docker run --rm -u 1000:1000 -e IN_SANDBOX=1 $SAMPLE_ARGS \
         -e SANDBOX_NET_RESTRICT="${SANDBOX_NET_RESTRICT:-0}" \
         -e SANDBOX_NET_SIM="${SANDBOX_NET_SIM:-0}" \
+        -e SANDBOX_LIVE_TRACE="${SANDBOX_LIVE_TRACE:-0}" \
         -e SANDBOX_SIM_IP="${SANDBOX_SIM_IP:-}" \
         -v "$REPO":/project -w /project "$IMAGE" \
         bash emulation/run_emulation.sh "$ARCH" "$OUT_IN" "$TIMEOUT"
@@ -90,6 +100,19 @@ if [ -n "$P_ROOTFS_RESIZE" ]; then
     qemu-img resize -f raw "$ROOTFS" "$P_ROOTFS_RESIZE" >/dev/null
 fi
 
+# --- Sincronizacion del init del invitado ---------------------------------
+# /sbin/telemetry_init va horneado en el rootfs por Buildroot, asi que cualquier cambio
+# obligaria a reconstruir las 4 imagenes (~17 min cada una). Se inyecta en caliente la
+# version del repo con el mismo truco que la muestra (debugfs, sin montar): el init del
+# invitado queda siempre sincronizado con emulation/common/overlay/sbin/telemetry_init.
+INIT_SRC="$EMU/common/overlay/sbin/telemetry_init"
+if [ -f "$INIT_SRC" ]; then
+    debugfs -w -R "rm /sbin/telemetry_init"                "$ROOTFS" >/dev/null 2>&1 || true
+    debugfs -w -R "write $INIT_SRC /sbin/telemetry_init"   "$ROOTFS" >/dev/null 2>&1
+    debugfs -w -R "sif /sbin/telemetry_init mode 0100755"  "$ROOTFS" >/dev/null 2>&1 || true
+    debugfs -w -R "sif /sbin/telemetry_init uid 0"         "$ROOTFS" >/dev/null 2>&1 || true
+fi
+
 # --- Inyeccion de la muestra (CP-3) --------------------------------------
 # Si SAMPLE_BIN apunta a un binario, SUSTITUYE el /opt/sample/test_sample horneado por la
 # muestra subida (tratada como NO confiable). Se escribe en el ext2 con `debugfs -w` (sin
@@ -124,6 +147,22 @@ esac
 CPU_ARG=""; [ -n "$P_QEMU_CPU" ] && CPU_ARG="-cpu $P_QEMU_CPU"
 APPEND="console=$P_CONSOLE root=$P_ROOT_DEV rw rootwait init=/sbin/telemetry_init panic=1"
 
+# --- Traza en vivo (CP-8) ------------------------------------------------
+# Con SANDBOX_LIVE_TRACE=1 se abre un SEGUNDO puerto serie y el invitado va escupiendo por
+# el la traza de strace mientras corre, de modo que el host la ve crecer en trace.live sin
+# esperar a que QEMU muera. Los 3 artefactos siguen saliendo por debugfs al final: esto es
+# una vista, no una fuente.
+# OJO: sacar cientos de miles de syscalls por un UART emulado ralentiza al invitado. No
+# usar en tandas de evaluacion, o los recuentos dejan de ser comparables.
+TRACE_ARG=""
+if [ "${SANDBOX_LIVE_TRACE:-0}" = "1" ] && [ -n "${P_TRACE_TTY:-}" ]; then
+    TRACE_ARG="-serial file:$OUT/trace.live"
+    APPEND="$APPEND sandbox.trace=$P_TRACE_TTY"
+    echo "== traza en vivo activada -> $OUT/trace.live (invitado: /dev/$P_TRACE_TTY) =="
+elif [ "${SANDBOX_LIVE_TRACE:-0}" = "1" ]; then
+    echo "WARN: el perfil $ARCH no declara P_TRACE_TTY; se detona sin traza en vivo"
+fi
+
 SERIAL="$OUT/serial.log"
 # Sentinela de fin: telemetry_init lo imprime tras cerrar sondas, sincronizar y remontar ro
 # la raíz — el momento seguro para parar QEMU. Se usa porque el reboot limpio NO funciona por
@@ -141,7 +180,7 @@ set +e
         $DRIVE_ARG \
         -append "$APPEND" \
         -net nic,model=$P_NIC_MODEL $NETOPT \
-        -nographic \
+        -nographic -serial mon:stdio $TRACE_ARG \
     > "$SERIAL" 2>&1 &
 QEMU_PID=$!
 # Para QEMU en cuanto el invitado señale fin (sentinela) o al agotarse el timeout de seguridad.
