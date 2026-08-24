@@ -383,6 +383,65 @@ externa en la imagen de la API por 12 bytes de cabecera); heurísticas por exten
 **Impacto en el TFM:** describe la selección automática de sandbox (Cap. 4.2.2) y refuerza la
 usabilidad del análisis multi-arquitectura.
 
+### ADR-022 — Simulación de servicios de red y aislamiento de la detonación (CP-5) · ACEPTADA
+
+**Contexto:** hasta CP-4 el invitado salía por SLIRP con NAT del contenedor, así que (a) su
+tráfico podía alcanzar Internet de verdad —inaceptable para detonar malware real en CP-7— y
+(b) nadie le contestaba: el DNS devolvía NXDOMAIN y los SYN al C2 se perdían. Ese es
+justamente el escenario de evasión descrito en §2.2.4 de la memoria: el binario comprueba la
+conectividad, ve que no hay red y no despliega su carga.
+
+**Decisión.** Tres piezas:
+
+1. **Red de detonación aislada.** Red Docker `sandbox_sim` con `internal: true` (172.31.240.0/24).
+   El contenedor de emulación se lanza ahí en lugar del bridge por defecto, de modo que **no
+   existe ruta a Internet** aunque fallase todo lo demás. Verificado: `Network is unreachable`.
+
+2. **Servicios simulados.** `inetsim` (INetSim 1.3.2, 172.31.240.10) sirve HTTP, HTTPS, FTP,
+   SMTP, POP3, IRC, NTP, TFTP, syslog, time y un catch-all `dummy` que acepta la conexión en
+   cualquier otro puerto. `simdns` (dnsmasq, 172.31.240.11) resuelve **cualquier** dominio a
+   192.0.2.1 (TEST-NET-1, RFC 5737).
+
+3. **Redirección del egress.** El contenedor de emulación instala con nftables un DNAT en
+   `nat/output` que manda el 53 a `simdns`, los puertos con servicio propio a INetSim
+   conservando el puerto, y **todo lo demás al catch-all**. Requiere `CAP_NET_ADMIN`.
+
+**Por qué DNAT en el contenedor y no una tap + bridge.** Con SLIRP el invitado ya sale como
+tráfico local del contenedor, así que basta reescribir el destino una capa por fuera: QEMU
+sigue **sin privilegios ni /dev/net/tun**, y el único permiso extra es `NET_ADMIN` sobre una
+red sin salida. La alternativa (tap + bridge) obligaba a dar tun y más capacidades al proceso
+que ejecuta la muestra, que es exactamente lo que interesa no hacer.
+
+**Por qué dnsmasq y no el DNS de INetSim.** INetSim 1.3.2 (2020) llama a
+`Net::DNS::Nameserver->main_loop`, retirado en Net::DNS ≥ 1.01 (Debian 13 trae 1.56): el
+servicio muere al nacer con *Can't locate object method "main_loop"*. La API que lo sustituye
+(`start_server`) aborta explícitamente si se la invoca desde un subproceso, que es como
+INetSim arranca cada servicio, así que el arreglo obligaba a parchear dos módulos de terceros.
+dnsmasq da el mismo comportamiento comodín (`address=/#/192.0.2.1`) con un paquete mantenido.
+Va en **su propio contenedor**: conviviendo con INetSim bajo el mismo PID 1, INetSim se queda
+colgado en «Forking services…» sin arrancar ninguno (comprobado).
+
+**Ruta por defecto.** En una red `internal` Docker no instala *default gateway*, y sin ruta un
+`connect()` a una IP codificada en la muestra falla con `ENETUNREACH` **antes** de generar
+paquete: el DNAT no lo vería y el invitado deduciría que está enjaulado. El contenedor añade
+`default via <INetSim>`, que está en la misma /24.
+
+**Efecto sobre los IoCs: ninguno.** `tcpdump` corre DENTRO del invitado, así que el pcap
+conserva la IP y el puerto que la muestra pidió de verdad; la reescritura ocurre por fuera.
+La única IP sintética que puede aparecer es 192.0.2.1 (respuesta del DNS), y `parsers.py` la
+trata como infraestructura, igual que la 10.0.2.0/24 de SLIRP. El IoC bueno ahí es el dominio.
+
+**Activada por defecto** (`SANDBOX_NET_SIM=1` en compose) por ser la postura segura;
+`SANDBOX_NET_SIM=0` vuelve al comportamiento de CP-2..CP-4.
+
+**Impacto en el TFM:** cumple el objetivo específico 3 (§3.2) y el Sprint 4 (§3.3.2); pasa a
+Cap. 4.2 como componente propio y **deja sin efecto la limitación de §4.3.4**, que declaraba la
+simulación de red «diseñada pero pendiente de integración». Aporta además un resultado medible
+para §4.3: mismo binario, con y sin simulación (NXDOMAIN + SYN sin respuesta → NOERROR +
+handshake completo).
+
+---
+
 ---
 
 ## Cómo se conecta con la "memoria" del TFM

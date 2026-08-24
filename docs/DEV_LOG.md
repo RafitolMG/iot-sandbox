@@ -431,3 +431,82 @@ bifurcación que requiera revisión humana). Sin decisiones humanas pendientes.
 
 **Siguiente:** **Hito 3 (multi-arquitectura) COMPLETO.** Queda CP-5 (anti-evasión / INetSim) y
 **CP-7 (evaluación con malware real)** — requiere que Rafael aporte muestras y lo autorice.
+
+---
+
+## CP-5 · Anti-evasión: red simulada y detonación aislada — 2026-08-24
+
+**Hecho:**
+- **Red de detonación aislada.** Nueva red Docker `sandbox_sim` (`internal: true`,
+  172.31.240.0/24). El worker lanza ahí el contenedor de emulación en lugar del bridge por
+  defecto: la muestra ya no tiene ninguna ruta a Internet.
+- **Servicios simulados** (ADR-022): `inetsim` (INetSim 1.3.2 en 172.31.240.10) con HTTP,
+  HTTPS, FTP, SMTP, POP3, IRC, NTP, TFTP, syslog, time y el catch-all `dummy`; `simdns`
+  (dnsmasq en 172.31.240.11) resolviendo **cualquier** dominio a 192.0.2.1 (TEST-NET-1).
+- **Redirección del egress**: `emulation/common/netsim.sh` instala con nftables un DNAT en
+  `nat/output` (53 → simdns; puertos con servicio propio → INetSim conservando puerto; el
+  resto → catch-all), apunta `resolv.conf` al DNS simulado —el reenviador de SLIRP lo usa
+  para el DNS del invitado— y añade la ruta por defecto que Docker no pone en redes
+  `internal`. Necesita `CAP_NET_ADMIN`; QEMU sigue sin privilegios ni `/dev/net/tun`.
+- `worker/emulation.py` resuelve la red de simulación por sufijo entre las suyas (mismo
+  patrón de autodescubrimiento que ADR-017) y pasa las IPs por entorno.
+- `worker/parsers.py` trata 192.0.2.1 como infraestructura, igual que la 10.0.2.0/24 de
+  SLIRP, para que la IP sintética del DNS no se cuele como IoC.
+- Activado por defecto (`SANDBOX_NET_SIM=1`); `SANDBOX_NET_SIM=0` vuelve a CP-2..CP-4.
+
+**Cómo verificar (stack levantado):**
+```bash
+cd ~/Proyectos/iot-sandbox
+docker compose up -d db valkey simdns inetsim api worker
+# Mismo binario ARM, con simulación (por defecto):
+cp emulation/arm/_build/buildroot-2024.02.11/output/target/opt/sample/test_sample /tmp/arm_bin
+SID=$(curl -s -F "file=@/tmp/arm_bin" localhost:8000/samples | python3 -c 'import sys,json;print(json.load(sys.stdin)["sample_id"])')
+until [ "$(curl -s localhost:8000/samples/$SID | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')" = done ]; do sleep 3; done
+curl -s localhost:8000/samples/$SID | python3 -m json.tool   # debe haber flujo TCP DE VUELTA
+# Evidencia fina sobre el pcap:
+docker run --rm -u 0:0 -v iot-sandbox_artifacts:/art:ro iot-sandbox/emulation:dev \
+  tshark -r /art/$SID/capture.pcap -Y tcp -T fields -e ip.src -e ip.dst -e tcp.flags.str
+# Comprobar que la red de detonación no sale a Internet:
+docker run --rm --network iot-sandbox_sandbox_sim iot-sandbox/emulation:dev \
+  bash -c 'timeout 4 bash -c "</dev/tcp/1.1.1.1/443" || echo "sin salida"'
+docker compose down
+```
+
+**Funciona / No funciona (verificado REAL, detonación por API):**
+- **Mismo binario, con y sin simulación** — la comparación que va a §4.3 de la memoria:
+
+  | | DNS `c2.sandbox-test.example` | TCP a 198.51.100.23:4444 | flujos |
+  |---|---|---|---|
+  | Sin simulación (muestra #5) | `rcode 3` (**NXDOMAIN**) | 2 × SYN, sin respuesta | 5 |
+  | Con simulación (muestra #7) | `rcode 0` → **192.0.2.1** | **SYN → SYN,ACK → ACK** + cierre FIN ordenado | 6 |
+
+  El flujo de vuelta `198.51.100.23 → 10.0.2.15` solo aparece con simulación: el invitado cree
+  que su C2 le ha contestado.
+- **IoCs intactos:** `ip 198.51.100.23` y `port 4444` se siguen extrayendo (pcap+strace), el
+  dominio también, y **192.0.2.1 NO aparece** como IoC. La reescritura es invisible al invitado
+  porque tcpdump corre dentro de QEMU.
+- **Agnóstico de ISA:** MIPS (muestra #8, autodetectado sin declarar `arch`) también completa
+  el handshake — 4 paquetes de ida y 3 de vuelta. La simulación es de contenedor, no de perfil.
+- **Aislamiento:** desde la red de detonación, `1.1.1.1:443` da *Network is unreachable* y no
+  hay resolución externa. La red es `internal=true`.
+- **Regresión:** con `SANDBOX_NET_SIM=0` (muestra #9) vuelven exactamente los 5 flujos y los 2
+  SYN sin respuesta de CP-4. Sin cambios en syscalls (78) ni IoCs (5).
+- **Tiempos:** sin cambios apreciables, ~15 s por detonación.
+
+**Tropiezos que merecen quedar escritos (dan material para el Cap. 4):**
+- El servicio DNS de INetSim **no arranca** en Debian 13: llama a
+  `Net::DNS::Nameserver->main_loop`, retirado en Net::DNS ≥ 1.01. La API que lo sustituye
+  aborta si se la llama desde un subproceso, que es como INetSim lanza cada servicio → se
+  delega el DNS en dnsmasq (ADR-022).
+- INetSim y dnsmasq **no pueden compartir contenedor**: con un hijo ajeno colgando del PID 1,
+  INetSim se queda en «Forking services…» sin arrancar ninguno. Un proceso por contenedor.
+- En una red `internal` no hay *default gateway*: sin añadir ruta, el `connect()` a una IP
+  codificada fallaba con `ENETUNREACH` antes de generar paquete y el DNAT nunca lo veía.
+
+**Decisiones abiertas (→ DECISIONS.md):** **ADR-022** registrada como **ACEPTADA**. Queda a
+revisión un punto: el contenedor de emulación recibe ahora `CAP_NET_ADMIN` (sobre una red sin
+salida, y sin que QEMU gane privilegios) — conviene confirmarlo explícitamente antes de CP-7.
+
+**Siguiente:** **Hito 2 COMPLETO.** Queda **CP-7 (evaluación con malware real)**, que requiere
+que Rafael aporte las muestras y lo autorice. En la memoria, CP-5 deja obsoleta la limitación
+de §4.3.4 y cumple el objetivo específico 3.

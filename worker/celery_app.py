@@ -28,6 +28,10 @@ BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://valkey:6379/0")
 RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://valkey:6379/1")
 EMULATION_TIMEOUT = int(os.environ.get("EMULATION_TIMEOUT", "180"))
 SANDBOX_NET_RESTRICT = os.environ.get("SANDBOX_NET_RESTRICT", "0") == "1"
+# Simulación de red con INetSim (CP-5, ADR-022); activada por defecto desde compose.
+SANDBOX_NET_SIM = os.environ.get("SANDBOX_NET_SIM", "0") == "1"
+SANDBOX_SIM_IP = os.environ.get("SANDBOX_SIM_IP", "")
+SANDBOX_SIM_DNS_IP = os.environ.get("SANDBOX_SIM_DNS_IP", "")
 
 app = Celery("iot_sandbox_worker", broker=BROKER_URL, backend=RESULT_BACKEND)
 app.conf.update(
@@ -111,6 +115,9 @@ def analyze(self, sample_id: int) -> dict:
             sample_id, sha256, arch=arch or "arm",
             timeout_s=EMULATION_TIMEOUT,
             net_restrict=SANDBOX_NET_RESTRICT,
+            net_sim=SANDBOX_NET_SIM,
+            sim_ip=SANDBOX_SIM_IP,
+            sim_dns_ip=SANDBOX_SIM_DNS_IP,
         )
         out = emu["out_dir"]
         strace_p = os.path.join(out, "strace.log")

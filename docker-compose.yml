@@ -57,6 +57,12 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://valkey:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://valkey:6379/1}
       EMULATION_TIMEOUT: ${EMULATION_TIMEOUT:-180}
+      # Simulación de red (CP-5). Activada por defecto: es la postura segura, porque la
+      # detonación pasa a correr en una red sin salida a Internet. SANDBOX_NET_SIM=0 vuelve
+      # al comportamiento de CP-2..CP-4 (SLIRP con egress por el contenedor).
+      SANDBOX_NET_SIM: ${SANDBOX_NET_SIM:-1}
+      SANDBOX_SIM_IP: ${SANDBOX_SIM_IP:-172.31.240.10}
+      SANDBOX_SIM_DNS_IP: ${SANDBOX_SIM_DNS_IP:-172.31.240.11}
       # Override opcional del wiring DooD; si va vacío, el worker lo autodescubre
       # inspeccionando sus propios montajes (ver worker/emulation.py, ADR-017).
       HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-}
@@ -79,7 +85,7 @@ services:
       timeout: 15s
       retries: 5
       start_period: 30s
-    networks: [sandbox_net]
+    networks: [sandbox_net, sandbox_sim]
     restart: unless-stopped
 
   # --- Base de datos (PostgreSQL) — ADR-010 -------------------------------
@@ -141,6 +147,47 @@ services:
     networks: [sandbox_net]
     restart: unless-stopped
 
+  # --- Simulación de servicios de red (INetSim) — CP-5, ADR-022 ------------
+  # Contesta DNS/HTTP/HTTPS y demás para que la muestra crea que tiene conectividad y no
+  # aborte por comprobación de red. Vive SOLO en sandbox_sim (internal: true), así que ni
+  # el simulador ni la detonación pueden alcanzar Internet.
+  inetsim:
+    build:
+      context: .
+      dockerfile: docker/inetsim.Dockerfile
+    image: iot-sandbox/inetsim:dev
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/80' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      sandbox_sim:
+        # IP fija: el contenedor de emulación la recibe por env y la mete en las reglas de
+        # DNAT, sin depender de resolución de nombres desde dentro de la detonación.
+        ipv4_address: 172.31.240.10
+    restart: unless-stopped
+
+  # --- DNS comodín de la detonación — CP-5, ADR-022 ------------------------
+  # Todo dominio resuelve a 192.0.2.1, así la muestra nunca recibe un NXDOMAIN que delate
+  # la sandbox. Separado de inetsim porque conviviendo en un PID 1 INetSim no arranca.
+  simdns:
+    build:
+      context: .
+      dockerfile: docker/simdns.Dockerfile
+    image: iot-sandbox/simdns:dev
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/53' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      sandbox_sim:
+        ipv4_address: 172.31.240.11
+    restart: unless-stopped
+
 volumes:
   pgdata:          # datos persistentes de PostgreSQL
   sample_storage:  # binarios de muestra subidos por la API, leídos por el worker
@@ -149,3 +196,11 @@ volumes:
 networks:
   sandbox_net:
     driver: bridge
+  # Red de detonación (CP-5): INetSim + el contenedor de emulación. `internal: true` = sin
+  # ruta a Internet, de modo que aunque fallara el DNAT la muestra no alcanzaría nada real.
+  sandbox_sim:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24

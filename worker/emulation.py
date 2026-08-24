@@ -29,6 +29,10 @@ ARTIFACTS_DEST = "/data/artifacts"
 # Script GENÉRICO dirigido por el registro de perfiles (CP-6, ADR-020): recibe la ISA como
 # primer argumento y carga emulation/profiles/<arch>.env.
 RUNNER = "emulation/run_emulation.sh"
+# Red de detonación con INetSim (CP-5, ADR-022). El nombre real lo pone compose con el
+# prefijo del proyecto (p.ej. `iot-sandbox_sandbox_sim`), así que se busca por sufijo entre
+# las redes del propio worker en vez de codificarlo.
+SIM_NETWORK_SUFFIX = "sandbox_sim"
 
 
 def _client() -> docker.DockerClient:
@@ -44,6 +48,25 @@ def _self_mounts(client: docker.DockerClient) -> list[dict]:
     except Exception:
         return []
     return info.get("Mounts", []) or []
+
+
+def resolve_sim_network(client: docker.DockerClient) -> str | None:
+    """Nombre de la red Docker donde vive INetSim, o None si el worker no está en ella."""
+    override = os.environ.get("SANDBOX_SIM_NETWORK")
+    if override:
+        return override
+    cid = os.environ.get("HOSTNAME", "")
+    if not cid:
+        return None
+    try:
+        info = client.api.inspect_container(cid)
+    except Exception:
+        return None
+    networks = (info.get("NetworkSettings", {}) or {}).get("Networks", {}) or {}
+    for name in networks:
+        if name.endswith(SIM_NETWORK_SUFFIX):
+            return name
+    return None
 
 
 def resolve_wiring(client: docker.DockerClient) -> tuple[str | None, str | None, str | None]:
@@ -74,6 +97,9 @@ def run_emulation(
     arch: str = "arm",
     timeout_s: int = 180,
     net_restrict: bool = False,
+    net_sim: bool = False,
+    sim_ip: str = "",
+    sim_dns_ip: str = "",
 ) -> dict:
     """Detona la muestra en la sandbox de la ISA `arch` (DooD) y deja los artefactos en un volumen.
 
@@ -107,6 +133,24 @@ def run_emulation(
         "QEMU_AUDIO_DRV": "none",
     }
 
+    # Red de la detonación. Con simulación (CP-5) el contenedor va a la red de INetSim, que
+    # es `internal: true`, y necesita NET_ADMIN para instalar el DNAT del egress. Sin ella se
+    # mantiene el bridge por defecto de CP-2..CP-4.
+    run_kwargs: dict = {"network_mode": "bridge"}
+    sim_network = resolve_sim_network(client) if net_sim else None
+    if net_sim and sim_network and sim_ip:
+        environment["SANDBOX_NET_SIM"] = "1"
+        environment["SANDBOX_SIM_IP"] = sim_ip
+        environment["SANDBOX_SIM_DNS_IP"] = sim_dns_ip or sim_ip
+        run_kwargs = {"network": sim_network, "cap_add": ["NET_ADMIN"]}
+    elif net_sim:
+        # Mejor detonar sin simulación que no detonar, pero que quede en el log del análisis.
+        print(
+            "WARN: simulación de red pedida pero no resuelta "
+            f"(red={sim_network!r}, ip={sim_ip!r}); se detona con SLIRP normal",
+            flush=True,
+        )
+
     container = client.containers.run(
         IMAGE,
         command=["bash", RUNNER, arch, out_in, str(timeout_s)],
@@ -114,8 +158,8 @@ def run_emulation(
         volumes=volumes,
         working_dir=PROJECT_DEST,
         user="0:0",                               # root: escribe en el volumen de artefactos
-        network_mode="bridge",                    # QEMU usa SLIRP interno; no necesita host-net
         detach=True,
+        **run_kwargs,
     )
     exit_code = -1
     logs = ""

@@ -10,8 +10,9 @@ Flujo completo: subir binario ARM → QEMU-ARM full-system → telemetría → I
 - CP-3 API + cola + persistencia ✅
 - CP-4 Frontend (cierre del MVP) ✅
 
-## Hito 2 — Robustez y anti-evasión
-- CP-5 INetSim / red simulada ⬜
+## Hito 2 — Robustez y anti-evasión ✅ COMPLETO (2026-08-24)
+- CP-5 INetSim / red simulada ✅ — detonación en red sin salida a Internet, con DNS comodín
+  y servicios simulados; el invitado ve conectividad real y los IoCs no se contaminan.
 
 ## Hito 3 — Multi-arquitectura ✅ (2026-07-07)
 - CP-6 Registro de perfiles por ISA + autodetección ELF; **ARM + MIPS + MIPSEL + x86_64**

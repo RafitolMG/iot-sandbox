@@ -58,8 +58,11 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
   `/api` → API; verificado end-to-end vía `curl` con los 5 servicios levantados).
 - **PARA.** Revisión de UX y del flujo end-to-end del MVP (**¡hito MVP completo!**).
 
-### CP-5 · Anti-evasión (INetSim)
-- Integrar simulación de servicios de red (DNS/HTTP) para que el binario crea tener conectividad.
+### CP-5 · Anti-evasión (INetSim) ✅
+- Red de detonación `sandbox_sim` (`internal: true`) + INetSim (HTTP/HTTPS/FTP/SMTP/… y
+  catch-all) + dnsmasq como DNS comodín, con DNAT de todo el egress vía nftables (ADR-022).
+- Verificable: mismo binario con y sin simulación — DNS pasa de NXDOMAIN a NOERROR y el TCP
+  al C2 de dos SYN perdidos a handshake completo, sin cambiar los IoCs extraídos.
 - **PARA.** Revisión.
 
 ### CP-6 · Generalización multi-arquitectura ✅
@@ -88,6 +91,6 @@ cubierta por `DECISIONS.md`. No se improvisa arquitectura.
 | CP-2 | Núcleo emulación ARM | ✅ Hecho (2026-07-07) |
 | CP-3 | API + cola + persistencia | ✅ Hecho (2026-07-07) |
 | CP-4 | Frontend (MVP completo) | ✅ Hecho (2026-07-07) — **🏁 Hito 1 / MVP COMPLETO** |
-| CP-5 | Anti-evasión INetSim | ⬜ Pendiente |
+| CP-5 | Anti-evasión INetSim | ✅ Hecho (2026-08-24) — ARM y MIPS verificados |
 | CP-6 | Multi-arquitectura | ✅ Hecho (2026-07-07) — ARM + MIPS + MIPSEL + x86_64 |
 | CP-7 | Evaluación malware real | ⬜ Pendiente |

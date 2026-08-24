@@ -64,9 +64,16 @@ Servicios y puertos declarados en `docker-compose.yml`:
 | db        | PostgreSQL 16                     | 5432        |
 | valkey    | Valkey 8 (broker Celery, BSD)     | 6379        |
 | worker    | Celery + QEMU (DooD)              | —           |
+| inetsim   | INetSim 1.3.2 (servicios simulados) | —         |
+| simdns    | dnsmasq (DNS comodín)             | —           |
 
 El frontend (nginx) reverse-proxya `/api` → `api:8000`, así que el navegador solo usa el
 puerto **5173** (SPA *same-origin*, sin CORS).
+
+`inetsim` y `simdns` no publican puertos al host: viven en la red `sandbox_sim`
+(`internal: true`), donde se detona la muestra y desde donde **no hay salida a Internet**.
+Todo el tráfico del invitado se redirige a ellos, de modo que el binario ve conectividad
+mientras el pcap conserva la IP y el puerto reales que pidió (CP-5, ADR-022).
 
 ## Estructura del repositorio
 

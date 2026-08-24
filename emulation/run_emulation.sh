@@ -22,10 +22,20 @@ set -euo pipefail
 IMAGE="iot-sandbox/emulation:dev"
 ARCH="${1:?uso: run_emulation.sh <arch> [OUTDIR] [TIMEOUT]  (arm|mips|mipsel|x86_64)}"
 TIMEOUT="${3:-180}"                 # timeout de seguridad del host (s)
-# Aislamiento de red: por defecto SLIRP normal para GARANTIZAR que el intento de red del
-# binario quede capturado en el pcap. El aislamiento pleno (restrict/INetSim) es CP-5.
-# Exporta SANDBOX_NET_RESTRICT=1 para bloquear egress.
-if [ "${SANDBOX_NET_RESTRICT:-0}" = "1" ]; then NETOPT="-net user,restrict=on"; else NETOPT="-net user"; fi
+# Aislamiento de red. Tres modos, de menos a mas aislado:
+#   (por defecto)             SLIRP normal: el egress sale por el contenedor.
+#   SANDBOX_NET_RESTRICT=1    SLIRP con restrict=on: el invitado no sale a ningun sitio.
+#   SANDBOX_NET_SIM=1         simulacion (CP-5, ADR-022): el egress se redirige a INetSim y
+#                             el contenedor va en una red Docker sin salida a Internet.
+# NET_SIM manda sobre NET_RESTRICT: con restrict=on el trafico ni siquiera saldria de SLIRP,
+# asi que no habria nada que redirigir.
+if [ "${SANDBOX_NET_SIM:-0}" = "1" ]; then
+    NETOPT="-net user"
+elif [ "${SANDBOX_NET_RESTRICT:-0}" = "1" ]; then
+    NETOPT="-net user,restrict=on"
+else
+    NETOPT="-net user"
+fi
 
 # ---------------------------------------------------------------------------
 # HOST: reejecutar dentro del contenedor de emulacion.
@@ -38,6 +48,8 @@ if [ -z "${IN_SANDBOX:-}" ]; then
     OUT_IN="/project/${OUT_HOST#$REPO/}"
     exec docker run --rm -u 1000:1000 -e IN_SANDBOX=1 \
         -e SANDBOX_NET_RESTRICT="${SANDBOX_NET_RESTRICT:-0}" \
+        -e SANDBOX_NET_SIM="${SANDBOX_NET_SIM:-0}" \
+        -e SANDBOX_SIM_IP="${SANDBOX_SIM_IP:-}" \
         -v "$REPO":/project -w /project "$IMAGE" \
         bash emulation/run_emulation.sh "$ARCH" "$OUT_IN" "$TIMEOUT"
 fi
@@ -94,6 +106,12 @@ if [ -n "${SAMPLE_BIN:-}" ] && [ -f "$SAMPLE_BIN" ]; then
     debugfs -R "stat /opt/sample/test_sample" "$ROOTFS" 2>/dev/null | grep -Ei 'mode|size' | head -n 2 || true
 elif [ -n "${SAMPLE_BIN:-}" ]; then
     echo "WARN: SAMPLE_BIN='$SAMPLE_BIN' no existe; se usa el binario de prueba horneado"
+fi
+
+# --- Simulacion de red (CP-5) --------------------------------------------
+# Redirige el egress del contenedor a INetSim para que la muestra crea que hay Internet.
+if [ "${SANDBOX_NET_SIM:-0}" = "1" ]; then
+    bash "$EMU/common/netsim.sh"
 fi
 
 # --- Argumentos QEMU derivados del perfil --------------------------------

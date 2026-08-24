@@ -37,6 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         e2fsprogs \
         # --- Verificación de artefactos (lectura de pcap) ---
         tshark tcpdump \
+        # --- Simulación de red (CP-5): DNAT del egress hacia INetSim ---
+        nftables iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Buildroot exige un locale UTF-8 disponible.
