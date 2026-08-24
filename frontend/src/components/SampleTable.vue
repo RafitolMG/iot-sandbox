@@ -35,7 +35,7 @@ const open = (id) => router.push(`/samples/${id}`)
           @click="open(s.id)"
         >
           <td class="mono">#{{ s.id }}</td>
-          <td style="max-width: 240px; word-break: break-all">{{ s.filename }}</td>
+          <td class="cell-name" :title="s.filename">{{ s.filename }}</td>
           <td><span class="pill chip-arch">{{ s.arch }}</span></td>
           <td class="cell-mono" :title="s.sha256">{{ shortHash(s.sha256) }}</td>
           <td class="muted">{{ humanBytes(s.size_bytes) }}</td>

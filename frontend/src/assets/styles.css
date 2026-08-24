@@ -559,3 +559,22 @@ table.data tr.clickable {
     display: none;
   }
 }
+
+/* Capped-telemetry notice: sits flush against the tab it heads, no gap to the table. */
+.alert.truncated {
+  margin: 0;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  font-size: 0.82rem;
+}
+
+/* Filenames are usually the full sha256: without this the row grows to three lines and the
+   listing becomes unreadable. The whole name stays in the title attribute. */
+.cell-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

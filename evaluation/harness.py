@@ -249,9 +249,12 @@ def _detonar(api: str, m: Muestra, espera_max: int, sondeo: int) -> None:
     m.segundos = round(time.monotonic() - t0, 1)
     m.isa_detectada = informe.get("arch") or ""
     m.error = (informe.get("error") or "").split("\n")[0][:160]
-    m.syscalls = len(informe.get("syscalls") or [])
-    m.flujos = len(informe.get("network_flows") or [])
-    m.fs = len(informe.get("fs_events") or [])
+    # De `counts`, NO de len(): la API acota los eventos que serializa para no devolver
+    # decenas de megas, pero `counts` sigue trayendo los totales reales.
+    cuentas = informe.get("counts") or {}
+    m.syscalls = int(cuentas.get("syscalls", len(informe.get("syscalls") or [])))
+    m.flujos = int(cuentas.get("network_flows", len(informe.get("network_flows") or [])))
+    m.fs = int(cuentas.get("fs_events", len(informe.get("fs_events") or [])))
     iocs = informe.get("iocs") or []
     m.iocs = len(iocs)
     m.iocs_por_tipo = Counter(i["type"] for i in iocs)
@@ -289,9 +292,12 @@ def _rellenar_desde_informe(m: Muestra, informe: dict) -> None:
     m.estado = informe.get("status", "")
     m.isa_detectada = informe.get("arch") or ""
     m.error = (informe.get("error") or "").split("\n")[0][:160]
-    m.syscalls = len(informe.get("syscalls") or [])
-    m.flujos = len(informe.get("network_flows") or [])
-    m.fs = len(informe.get("fs_events") or [])
+    # De `counts`, NO de len(): la API acota los eventos que serializa para no devolver
+    # decenas de megas, pero `counts` sigue trayendo los totales reales.
+    cuentas = informe.get("counts") or {}
+    m.syscalls = int(cuentas.get("syscalls", len(informe.get("syscalls") or [])))
+    m.flujos = int(cuentas.get("network_flows", len(informe.get("network_flows") or [])))
+    m.fs = int(cuentas.get("fs_events", len(informe.get("fs_events") or [])))
     iocs = informe.get("iocs") or []
     m.iocs = len(iocs)
     m.iocs_por_tipo = Counter(i["type"] for i in iocs)
@@ -517,9 +523,12 @@ def _rellenar_desde_informe(m: Muestra, informe: dict) -> None:
     m.estado = informe.get("status", "")
     m.isa_detectada = informe.get("arch") or ""
     m.error = (informe.get("error") or "").split("\n")[0][:160]
-    m.syscalls = len(informe.get("syscalls") or [])
-    m.flujos = len(informe.get("network_flows") or [])
-    m.fs = len(informe.get("fs_events") or [])
+    # De `counts`, NO de len(): la API acota los eventos que serializa para no devolver
+    # decenas de megas, pero `counts` sigue trayendo los totales reales.
+    cuentas = informe.get("counts") or {}
+    m.syscalls = int(cuentas.get("syscalls", len(informe.get("syscalls") or [])))
+    m.flujos = int(cuentas.get("network_flows", len(informe.get("network_flows") or [])))
+    m.fs = int(cuentas.get("fs_events", len(informe.get("fs_events") or [])))
     iocs = informe.get("iocs") or []
     m.iocs = len(iocs)
     m.iocs_por_tipo = Counter(i["type"] for i in iocs)

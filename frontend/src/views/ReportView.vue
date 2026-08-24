@@ -25,6 +25,25 @@ const counts = computed(() => report.value?.counts ?? {})
 const pending = computed(() => report.value && isPending(report.value.status))
 const failed = computed(() => report.value?.status === 'failed')
 
+// `done` only means the pipeline finished, not that the sample ran: corrupt ELFs and legacy
+// ABI binaries fail at execve inside the guest. Without this warning an empty report reads as
+// "it did nothing" when in fact it never started.
+const failedExec = computed(() =>
+  (report.value?.syscalls ?? []).find((s) => s.name === 'execve' && (s.result ?? '').trim() !== '0'),
+)
+const didNotRun = computed(
+  () =>
+    report.value?.status === 'done' &&
+    !(report.value?.syscalls ?? []).some((s) => s.name === 'execve' && (s.result ?? '').trim() === '0'),
+)
+
+// How many events of each kind arrived, against the real total (the API caps them).
+const shown = computed(() => ({
+  network: report.value?.network_flows?.length ?? 0,
+  syscalls: report.value?.syscalls?.length ?? 0,
+  fs: report.value?.fs_events?.length ?? 0,
+}))
+
 const TYPE_LABEL = { ip: 'IP', domain: 'Dominio', file: 'Fichero', port: 'Puerto', hash: 'Hash' }
 
 // Group IoCs by type for a scannable layout (IPs / domains first — most actionable).
@@ -132,6 +151,16 @@ onUnmounted(() => clearTimeout(timer))
               muestra en QEMU y recogiendo telemetría. La página se actualiza automáticamente.
             </span>
           </div>
+          <div v-else-if="didNotRun" class="alert alert-warn">
+            <strong>La muestra no llegó a ejecutarse en el invitado.</strong>
+            <div style="margin-top: 6px">
+              El análisis se completó, pero la telemetría está vacía porque
+              <code>execve</code> falló<template v-if="failedExec">
+                con <span class="mono">{{ failedExec.result }}</span></template>. Suele deberse a
+              un ELF con cabeceras inconsistentes o compilado para una ABI que el núcleo del
+              invitado no admite.
+            </div>
+          </div>
           <div v-else-if="failed" class="alert alert-err">
             <strong>El análisis falló.</strong>
             <div class="mono" style="margin-top: 6px; white-space: pre-wrap">
@@ -144,19 +173,19 @@ onUnmounted(() => clearTimeout(timer))
       <!-- Counters -->
       <div class="grid-stats">
         <div class="stat">
-          <div class="num" style="color: var(--ioc-domain)">{{ counts.iocs ?? 0 }}</div>
+          <div class="num" style="color: var(--ioc-domain)">{{ (counts.iocs ?? 0).toLocaleString('es-ES') }}</div>
           <div class="lbl">IoCs</div>
         </div>
         <div class="stat">
-          <div class="num" style="color: var(--run)">{{ counts.network_flows ?? 0 }}</div>
+          <div class="num" style="color: var(--run)">{{ (counts.network_flows ?? 0).toLocaleString('es-ES') }}</div>
           <div class="lbl">Flujos de red</div>
         </div>
         <div class="stat">
-          <div class="num">{{ counts.syscalls ?? 0 }}</div>
+          <div class="num">{{ (counts.syscalls ?? 0).toLocaleString('es-ES') }}</div>
           <div class="lbl">Syscalls</div>
         </div>
         <div class="stat">
-          <div class="num" style="color: var(--ioc-file)">{{ counts.fs_events ?? 0 }}</div>
+          <div class="num" style="color: var(--ioc-file)">{{ (counts.fs_events ?? 0).toLocaleString('es-ES') }}</div>
           <div class="lbl">Eventos FS</div>
         </div>
       </div>
@@ -171,12 +200,12 @@ onUnmounted(() => clearTimeout(timer))
             :class="{ active: tab === t.key }"
             @click="tab = t.key"
           >
-            {{ t.label }} <span class="count">{{ t.count }}</span>
+            {{ t.label }} <span class="count">{{ t.count.toLocaleString('es-ES') }}</span>
           </button>
         </div>
 
         <!-- IoCs -->
-        <div v-show="tab === 'iocs'" class="card-body">
+        <div v-if="tab === 'iocs'" class="card-body">
           <div v-if="!report.iocs.length" class="empty" style="padding: 28px">
             <span class="muted">Sin IoCs extraídos.</span>
           </div>
@@ -197,7 +226,10 @@ onUnmounted(() => clearTimeout(timer))
         </div>
 
         <!-- Network -->
-        <div v-show="tab === 'network'" class="card-body" style="padding: 0">
+        <div v-if="tab === 'network'" class="card-body" style="padding: 0">
+          <div v-if="shown.network < counts.network_flows" class="alert alert-info truncated">
+            Mostrando los primeros {{ shown.network }} de {{ counts.network_flows }} flujos.
+          </div>
           <div v-if="!report.network_flows.length" class="empty" style="padding: 28px">
             <span class="muted">Sin actividad de red capturada.</span>
           </div>
@@ -230,7 +262,12 @@ onUnmounted(() => clearTimeout(timer))
         </div>
 
         <!-- Syscalls -->
-        <div v-show="tab === 'syscalls'" class="card-body" style="padding: 0">
+        <div v-if="tab === 'syscalls'" class="card-body" style="padding: 0">
+          <div v-if="shown.syscalls < counts.syscalls" class="alert alert-info truncated">
+            Mostrando las primeras {{ shown.syscalls }} de
+            {{ counts.syscalls.toLocaleString('es-ES') }} llamadas. La traza completa está en el
+            artefacto <span class="mono">strace.log</span> del análisis.
+          </div>
           <div v-if="!report.syscalls.length" class="empty" style="padding: 28px">
             <span class="muted">Sin syscalls registradas.</span>
           </div>
@@ -259,7 +296,10 @@ onUnmounted(() => clearTimeout(timer))
         </div>
 
         <!-- FS events -->
-        <div v-show="tab === 'fs'" class="card-body" style="padding: 0">
+        <div v-if="tab === 'fs'" class="card-body" style="padding: 0">
+          <div v-if="shown.fs < counts.fs_events" class="alert alert-info truncated">
+            Mostrando los primeros {{ shown.fs }} de {{ counts.fs_events }} eventos.
+          </div>
           <div v-if="!report.fs_events.length" class="empty" style="padding: 28px">
             <span class="muted">Sin cambios en el sistema de ficheros.</span>
           </div>

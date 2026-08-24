@@ -23,7 +23,7 @@ import { RouterLink, RouterView } from 'vue-router'
 
     <footer class="container" style="padding-top: 0; padding-bottom: 24px">
       <p class="faint" style="font-size: 0.8rem; text-align: center; margin: 0">
-        TFM · Sandbox de análisis dinámico de malware IoT — MVP (ARM) · detonación en QEMU
+        TFM · Sandbox de análisis dinámico de malware IoT · ARM · MIPS · MIPSEL · x86_64 · detonación en QEMU
         full-system
       </p>
     </footer>

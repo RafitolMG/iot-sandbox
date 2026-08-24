@@ -5,7 +5,6 @@
 //                          errors: 400 (arch/empty), 413 (too large)
 //   GET  /samples          -> [SampleSummary]
 //   GET  /samples/{id}     -> SampleReport | 404
-//   GET  /health           -> {status: "ok"}
 //
 // The base path (default `/api`) is proxied to the backend by Vite (dev) or nginx (Docker).
 
@@ -39,10 +38,6 @@ async function getJson(path, { signal } = {}) {
   return res.json()
 }
 
-/** Health probe — used to surface backend availability in the UI. */
-export function getHealth(opts) {
-  return getJson('/health', opts)
-}
 
 /** List all samples, most recent first. */
 export function listSamples(opts) {

@@ -8,8 +8,8 @@ import { humanBytes } from '../format'
 
 const emit = defineEmits(['uploaded'])
 
-// Multi-arquitectura (CP-6): el backend autodetecta la ISA por la cabecera ELF, o se
-// puede forzar. Todas tienen perfil QEMU (emulation/profiles/<arch>.env).
+// The backend autodetects the ISA from the ELF header; picking one forces it instead.
+// Each has a QEMU profile under emulation/profiles/<arch>.env.
 const ARCHES = [
   { value: 'auto', label: 'Detección automática (ELF)', enabled: true },
   { value: 'arm', label: 'ARM (armhf / Cortex-A9 · vexpress-a9)', enabled: true },
@@ -150,7 +150,7 @@ function clearFileKeepResult() {
       <div v-if="error" class="alert alert-err">{{ error }}</div>
 
       <p class="faint" style="font-size: 0.8rem; margin: 0">
-        Solo binario benigno de prueba en el MVP. El fichero se almacena por su
+        La muestra se trata como no confiable: se almacena por su
         <code>sha256</code> y se detona dentro de QEMU; nunca se ejecuta en el host.
       </p>
     </div>

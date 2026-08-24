@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     # Tamaño máximo de subida (bytes). 64 MiB por defecto (binarios IoT son pequeños).
     max_upload_bytes: int = 64 * 1024 * 1024
 
+    # Tope de eventos por tipo que devuelve el reporte. Los totales reales viajan aparte en
+    # `counts`; esto solo acota lo que se serializa para que una muestra ruidosa no genere
+    # decenas de megas de JSON ni bloquee al navegador.
+    report_event_limit: int = 500
+
     # Arquitecturas soportadas (con perfil + rootfs construido) — CP-6.
     # Cada una tiene un perfil en emulation/profiles/<arch>.env. Se usa como gate del
     # endpoint POST /samples (autodetección ELF o `arch` explícito). Overridable por env

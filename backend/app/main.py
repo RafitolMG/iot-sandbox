@@ -170,21 +170,46 @@ async def get_sample(
     if sample is None:
         raise HTTPException(status_code=404, detail="muestra no encontrada")
 
+    # Los eventos se devuelven ACOTADOS. Una muestra real puede generar cientos de miles de
+    # syscalls —se han medido 262.287 en una sola detonación—, y servirlas todas convertía el
+    # reporte en 24 MB de JSON que el navegador tardaba segundos en pintar. Los totales
+    # verdaderos se cuentan aparte y viajan en `counts`, así que la interfaz puede indicar
+    # cuánto se está omitiendo. Para el análisis completo están los artefactos en bruto.
+    async def _total(model) -> int:
+        return int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(model).where(model.sample_id == sample_id)
+                )
+            ).scalar_one()
+        )
+
+    n_syscalls = await _total(SyscallEvent)
+    n_flows = await _total(NetworkFlow)
+    n_fs = await _total(FsEvent)
+
     syscalls = (
         await session.execute(
             select(SyscallEvent)
             .where(SyscallEvent.sample_id == sample_id)
             .order_by(SyscallEvent.seq)
+            .limit(settings.report_event_limit)
         )
     ).scalars().all()
     flows = (
         await session.execute(
-            select(NetworkFlow).where(NetworkFlow.sample_id == sample_id).order_by(NetworkFlow.id)
+            select(NetworkFlow)
+            .where(NetworkFlow.sample_id == sample_id)
+            .order_by(NetworkFlow.id)
+            .limit(settings.report_event_limit)
         )
     ).scalars().all()
     fs_events = (
         await session.execute(
-            select(FsEvent).where(FsEvent.sample_id == sample_id).order_by(FsEvent.id)
+            select(FsEvent)
+            .where(FsEvent.sample_id == sample_id)
+            .order_by(FsEvent.id)
+            .limit(settings.report_event_limit)
         )
     ).scalars().all()
     iocs = (
@@ -204,9 +229,9 @@ async def get_sample(
         created_at=sample.created_at,
         finished_at=sample.finished_at,
         counts={
-            "syscalls": len(syscalls),
-            "network_flows": len(flows),
-            "fs_events": len(fs_events),
+            "syscalls": n_syscalls,
+            "network_flows": n_flows,
+            "fs_events": n_fs,
             "iocs": len(iocs),
         },
         syscalls=syscalls,
