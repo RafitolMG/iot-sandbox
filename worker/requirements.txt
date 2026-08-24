@@ -8,3 +8,4 @@ SQLAlchemy==2.0.36
 psycopg[binary]==3.2.3      # driver PostgreSQL SÍNCRONO (las tareas Celery son sync)
 scapy==2.6.1                # parseo de pcap en Python puro (SLL/DNS), sin tshark en el worker
 docker==7.1.0               # SDK: lanza la imagen de emulación por el socket (DooD)
+pytest==8.3.4               # suite de tests (tests/); el worker es la imagen :dev

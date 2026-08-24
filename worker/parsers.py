@@ -28,9 +28,12 @@ from dataclasses import dataclass, field
 
 # --- Infraestructura de red del sandbox — NO son IoCs ------------------------
 SLIRP_NET = ipaddress.ip_network("10.0.2.0/24")
-# IP sintética que devuelve el DNS de INetSim (CP-5): aparece en el pcap cuando la muestra
-# resuelve un dominio, pero es del simulador, no del C2. El IoC bueno ahí es el dominio.
-SIM_DNS_IP = ipaddress.ip_address(os.environ.get("SANDBOX_SIM_DNS_IP", "192.0.2.1"))
+# IP sintética con la que RESPONDE el resolutor comodín (CP-5): aparece en el pcap cuando la
+# muestra resuelve un dominio y luego conecta, pero es del simulador, no del C2; el IoC bueno
+# ahí es el dominio. OJO: no confundir con SANDBOX_SIM_DNS_IP, que es la dirección del
+# contenedor que sirve el DNS y que el invitado nunca llega a ver, porque la redirección
+# ocurre por fuera de QEMU. Debe coincidir con `address=/#/` de docker/simdns/dnsmasq.conf.
+SIM_ANSWER_IP = ipaddress.ip_address(os.environ.get("SANDBOX_SIM_ANSWER_IP", "192.0.2.1"))
 
 # Rutas de solo-lectura del sistema que NO cuentan como "fichero tocado" por la muestra.
 _FS_IOC_IGNORE_PREFIXES = ("/proc", "/sys", "/dev", "/etc", "/usr", "/lib", "/opt/sample")
@@ -156,7 +159,7 @@ def _is_external_ip(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    if addr in SLIRP_NET or addr == SIM_DNS_IP:
+    if addr in SLIRP_NET or addr == SIM_ANSWER_IP:
         return False
     if addr.is_loopback or addr.is_unspecified:
         return False

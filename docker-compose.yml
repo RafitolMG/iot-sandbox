@@ -67,6 +67,10 @@ services:
       SANDBOX_NET_RESTRICT: ${SANDBOX_NET_RESTRICT:-0}
       SANDBOX_SIM_IP: ${SANDBOX_SIM_IP:-172.31.240.10}
       SANDBOX_SIM_DNS_IP: ${SANDBOX_SIM_DNS_IP:-172.31.240.11}
+      # IP con la que RESPONDE el resolutor comodín, no la del contenedor que lo sirve: es la
+      # que acaba en el pcap del invitado y hay que excluirla de los IoCs. Debe coincidir con
+      # `address=/#/` en docker/simdns/dnsmasq.conf.
+      SANDBOX_SIM_ANSWER_IP: ${SANDBOX_SIM_ANSWER_IP:-192.0.2.1}
       # Override opcional del wiring DooD; si va vacío, el worker lo autodescubre
       # inspeccionando sus propios montajes (ver worker/emulation.py, ADR-017).
       HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-}

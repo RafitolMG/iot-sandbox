@@ -713,3 +713,32 @@ medida con sentido.
 
 Se purgaron también los 20 IoCs de tipo hash que quedaban en la base de tandas anteriores,
 para que los datos vivos coincidan con la nueva semántica y con lo que dice la memoria.
+
+---
+
+## Nota · Suite de tests, y el defecto que destapó — 2026-08-24
+
+El `PROJECT_BRIEF` declaraba pytest en el stack de calidad desde CP-0 y no había ni un test.
+Se añaden 44, sobre los dos módulos de lógica pura —`archdetect` y `parsers`— que son
+justamente donde han ido apareciendo los defectos reales. Corren dentro del contenedor del
+worker (`docker compose run --rm --no-deps -w /project worker pytest`), que es donde están
+las dependencias; `parse_pcap` importa scapy de forma perezosa, así que el resto del parseo
+se prueba sin ella.
+
+**El primer test rojo encontró un fallo latente.** `parsers.py` excluía de los IoCs la IP
+`SANDBOX_SIM_DNS_IP`, pero esa variable la fija compose a `172.31.240.11`, que es la
+**dirección del contenedor** que sirve el DNS — una IP que el invitado **nunca ve**, porque la
+redirección ocurre por fuera de QEMU. La que sí aparece en su pcap es `192.0.2.1`, con la que
+el resolutor comodín *responde*, y esa no se estaba filtrando: dos conceptos distintos
+compartiendo nombre de variable. El efecto era latente porque ninguna muestra del corpus llegó
+a resolver un dominio y conectar después; habría aflorado en cuanto una lo hiciera, es decir,
+precisamente cuando la simulación de DNS cumple su función. Se separa en
+`SANDBOX_SIM_ANSWER_IP`, con la advertencia en el código y en compose de que debe coincidir
+con `address=/#/` de `dnsmasq.conf`.
+
+**También se corrigió documentación desalineada,** encontrada revisando el repo con la misma
+intención: el capítulo 4 decía «los cinco servicios» cuando desde CP-5 son siete; afirmaba que
+el sistema «se reconstruye en una máquina limpia con una sola orden», sin matizar que los
+rootfs y kernels no se distribuyen y hay que construirlos (~17 min por ISA) antes de poder
+detonar; y el README citaba `emulation/arm/build_rootfs.sh`, ruta desaparecida en CP-6, además
+de no mencionar el arnés de evaluación ni la traza en vivo.

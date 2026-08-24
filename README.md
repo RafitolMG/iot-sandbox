@@ -47,13 +47,16 @@ docker compose up --build # levanta db, valkey, api, worker y frontend
 
 Cuando los 5 servicios estén `healthy` (`docker compose ps`), **abre la web en
 http://localhost:5173**: sube el binario benigno de prueba
-(`emulation/arm/overlay/opt/sample/test_sample`, arch ARM), obsérvalo pasar de *En cola* →
+(el binario benigno de `emulation/common/testbin/`, horneado en cada rootfs), obsérvalo pasar de *En cola* →
 *Analizando* → *Completado* (auto-refresco) y pincha en la muestra para ver el reporte forense
 (cabecera + contadores + IoCs + pestañas Red/Syscalls/Ficheros).
 
-> La primera detonación requiere la imagen de emulación `iot-sandbox/emulation:dev` y los
-> artefactos de kernel/rootfs (`emulation/arm/_build/images/`), generados en CP-2 con
-> `emulation/arm/build_rootfs.sh`.
+> **Antes de la primera detonación** hay que generar el kernel y el rootfs de cada
+> arquitectura: `emulation/build_rootfs.sh <arm|mips|mipsel|x86_64>`. Son artefactos que no
+> se versionan (pesan gigas) y su construcción con Buildroot lleva unos 17 minutos por
+> arquitectura, una sola vez; varias pueden construirse en paralelo compartiendo la caché de
+> descargas. `docker compose up` levanta los servicios sin ellos, pero el análisis fallará
+> hasta que existan.
 
 Servicios y puertos declarados en `docker-compose.yml`:
 
@@ -74,6 +77,36 @@ puerto **5173** (SPA *same-origin*, sin CORS).
 (`internal: true`), donde se detona la muestra y desde donde **no hay salida a Internet**.
 Todo el tráfico del invitado se redirige a ellos, de modo que el binario ve conectividad
 mientras el pcap conserva la IP y el puerto reales que pidió (CP-5, ADR-022).
+
+## Tests
+
+```bash
+docker compose run --rm --no-deps -w /project worker pytest -p no:cacheprovider
+```
+
+Cubren los dos módulos de lógica pura —autodetección de ISA por cabecera ELF y parseo de
+artefactos con extracción de IoCs—, que son donde han aparecido los defectos reales: bytes
+NUL en las trazas, la distinción entre «no es un ELF» y «ELF de arquitectura desconocida», y
+qué direcciones son infraestructura del banco de pruebas y no comportamiento de la muestra.
+Se ejecutan dentro del contenedor del worker porque es donde están las dependencias.
+
+## Evaluación por lotes
+
+Para pasar un conjunto de muestras por la sandbox y obtener las tablas de resultados:
+
+```bash
+python3 evaluation/harness.py inventario ~/muestras          # qué hay, sin detonar nada
+python3 evaluation/harness.py lote       ~/muestras --salida resultados/
+```
+
+Detalle de los subcomandos y del procedimiento de comparación en `evaluation/README.md`.
+
+## Traza en vivo
+
+Por defecto los artefactos se extraen al terminar la detonación. Con `SANDBOX_LIVE_TRACE=1`
+el invitado va emitiendo el strace por un segundo puerto serie y el anfitrión lo recibe en
+`trace.live` mientras la muestra corre. Ralentiza al invitado, así que **no debe usarse en
+tandas de evaluación**: alteraría los recuentos. Detalle en ADR-023.
 
 ## Estructura del repositorio
 
