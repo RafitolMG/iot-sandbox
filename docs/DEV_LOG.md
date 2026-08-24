@@ -503,9 +503,10 @@ docker compose down
 - En una red `internal` no hay *default gateway*: sin añadir ruta, el `connect()` a una IP
   codificada fallaba con `ENETUNREACH` antes de generar paquete y el DNAT nunca lo veía.
 
-**Decisiones abiertas (→ DECISIONS.md):** **ADR-022** registrada como **ACEPTADA**. Queda a
-revisión un punto: el contenedor de emulación recibe ahora `CAP_NET_ADMIN` (sobre una red sin
-salida, y sin que QEMU gane privilegios) — conviene confirmarlo explícitamente antes de CP-7.
+**Decisiones abiertas (→ DECISIONS.md):** ninguna. **ADR-022** registrada como **ACEPTADA**, y
+el `CAP_NET_ADMIN` del contenedor de emulación **confirmado en revisión (2026-08-24)**: es la
+contrapartida que hace posible el aislamiento, sin que QEMU gane privilegios. Requisito de
+aislamiento cerrado de cara a CP-7.
 
 **Siguiente:** **Hito 2 COMPLETO.** Queda **CP-7 (evaluación con malware real)**, que requiere
 que Rafael aporte las muestras y lo autorice. En la memoria, CP-5 deja obsoleta la limitación

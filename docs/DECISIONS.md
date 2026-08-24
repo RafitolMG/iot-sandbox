@@ -434,6 +434,13 @@ trata como infraestructura, igual que la 10.0.2.0/24 de SLIRP. El IoC bueno ahí
 **Activada por defecto** (`SANDBOX_NET_SIM=1` en compose) por ser la postura segura;
 `SANDBOX_NET_SIM=0` vuelve al comportamiento de CP-2..CP-4.
 
+**✔ `CAP_NET_ADMIN` confirmado en revisión (2026-08-24).** Se acepta como contrapartida
+necesaria del aislamiento: es lo que permite encerrar la detonación en una red sin salida y
+redirigir su tráfico, evitando que la muestra alcance sistemas de terceros. La capacidad la
+recibe el contenedor de emulación, no el proceso que ejecuta la muestra —QEMU sigue sin
+privilegios ni `/dev/net/tun`— y actúa sobre una red `internal` sin ruta a Internet. Queda
+así cerrado el requisito de aislamiento antes de detonar malware real en CP-7.
+
 **Impacto en el TFM:** cumple el objetivo específico 3 (§3.2) y el Sprint 4 (§3.3.2); pasa a
 Cap. 4.2 como componente propio y **deja sin efecto la limitación de §4.3.4**, que declaraba la
 simulación de red «diseñada pero pendiente de integración». Aporta además un resultado medible
