@@ -82,6 +82,7 @@ iot-sandbox/
 ├── backend/            # API REST (FastAPI, Python 3.12)          [CP-1/CP-3 ✅]
 ├── worker/             # Celery worker + orquestación de QEMU     [CP-2/CP-3 ✅]
 ├── frontend/           # SPA Vue 3 + Vite                         [CP-4 ✅]
+├── evaluation/         # Arnés de evaluación por lotes            [CP-7 ⬜]
 ├── emulation/          # Perfiles y scripts QEMU por ISA
 │   └── arm/            #   ARM primero (MVP)                      [CP-2 ✅]
 ├── docker/             # Dockerfiles de los servicios             [✅]

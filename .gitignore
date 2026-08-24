@@ -85,6 +85,12 @@ Thumbs.db
 *.swo
 *~
 
+# --- Evaluación (CP-7) ----------------------------------------------------
+# Resultados de las tandas y cualquier muestra que acabe aquí por descuido.
+evaluation/resultados/
+resultados/
+manifest.csv
+
 # --- Memoria del TFM ------------------------------------------------------
 # Borradores de la memoria (.docx/.md) y comentarios del tutor. El agente SÍ debe
 # leer esta carpeta como contexto, pero queda FUERA de git a propósito.
