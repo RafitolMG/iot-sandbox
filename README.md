@@ -12,21 +12,21 @@ despliega con **Docker Compose**.
 
 ## Estado
 
-**🏁 Hito 1 — MVP end-to-end (ARM) COMPLETO (CP-0 → CP-4).** Flujo completo operativo:
-subir un binario ARM desde la web → detonación en QEMU full-system → captura de telemetría
+Flujo completo operativo: subir un binario desde la web → detección automática de la
+arquitectura por cabecera ELF → detonación en QEMU full-system → captura de telemetría
 (syscalls / red / ficheros) → extracción de IoCs → persistencia → **reporte forense en el
-navegador**. Todo se levanta con `docker compose up`. Ver el estado de los checkpoints en
-[`docs/CHECKPOINTS.md`](docs/CHECKPOINTS.md) y la bitácora en [`docs/DEV_LOG.md`](docs/DEV_LOG.md).
+navegador**. Todo se levanta con `docker compose up`.
 
-Fuera del MVP (siguientes hitos): CP-5 anti-evasión (INetSim), CP-6 multi-arquitectura
-(MIPS/MIPSEL/x86_64), CP-7 evaluación con malware real.
+Cuatro arquitecturas soportadas (ARM, MIPS, MIPSEL, x86_64), red de detonación aislada con
+servicios simulados para que la muestra perciba conectividad sin alcanzar sistemas reales, y
+traza opcional en vivo por un segundo puerto serie.
 
 ## Aviso de seguridad
 
-Se manejan binarios maliciosos reales. **Durante el desarrollo del MVP NO se ejecuta
-malware real**: la tubería se valida con un binario ARM benigno de prueba. El malware
-real solo se detona en la fase de evaluación, **siempre dentro de QEMU full-system,
-nunca en el host**. Ver §6 de [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md).
+Se manejan binarios maliciosos reales. La muestra **siempre se detona dentro de QEMU
+full-system, nunca en el host ni en el contenedor que lo lanza**, y sobre una red sin
+encaminamiento hacia Internet. El binario nunca se ejecuta, se marca ejecutable ni se abre
+fuera del invitado.
 
 ## Arquitectura (resumen)
 
@@ -35,8 +35,6 @@ navegador ─▶ Frontend (Vue 3) ─▶ API (FastAPI) ─┬─▶ PostgreSQL
                                                  └─▶ Redis ─▶ Celery worker ─▶ QEMU full-system
                                                                                 (rootfs mínimo + telemetría)
 ```
-
-Detalle en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Cómo se levanta
 
@@ -90,17 +88,6 @@ NUL en las trazas, la distinción entre «no es un ELF» y «ELF de arquitectura
 qué direcciones son infraestructura del banco de pruebas y no comportamiento de la muestra.
 Se ejecutan dentro del contenedor del worker porque es donde están las dependencias.
 
-## Evaluación por lotes
-
-Para pasar un conjunto de muestras por la sandbox y obtener las tablas de resultados:
-
-```bash
-python3 evaluation/harness.py inventario ~/muestras          # qué hay, sin detonar nada
-python3 evaluation/harness.py lote       ~/muestras --salida resultados/
-```
-
-Detalle de los subcomandos y del procedimiento de comparación en `evaluation/README.md`.
-
 ## Traza en vivo
 
 Por defecto los artefactos se extraen al terminar la detonación. Con `SANDBOX_LIVE_TRACE=1`
@@ -114,25 +101,19 @@ tandas de evaluación**: alteraría los recuentos. Detalle en ADR-023.
 iot-sandbox/
 ├── backend/            # API REST (FastAPI, Python 3.12)          [CP-1/CP-3 ✅]
 ├── worker/             # Celery worker + orquestación de QEMU     [CP-2/CP-3 ✅]
-├── frontend/           # SPA Vue 3 + Vite                         [CP-4 ✅]
-├── evaluation/         # Arnés de evaluación por lotes            [CP-7 ⬜]
+├── frontend/           # SPA Vue 3 + Vite
 ├── emulation/          # Perfiles y scripts QEMU por ISA
-│   └── arm/            #   ARM primero (MVP)                      [CP-2 ✅]
-├── docker/             # Dockerfiles de los servicios             [✅]
-├── docs/               # Documentación de gobierno del proyecto
-│   ├── PROJECT_BRIEF.md   # el encargo (fuente de verdad)
-│   ├── DECISIONS.md       # registro de decisiones (ADR)
-│   ├── ARCHITECTURE.md    # arquitectura objetivo
-│   ├── ROADMAP.md         # hitos
-│   ├── CHECKPOINTS.md     # protocolo de paradas
-│   └── DEV_LOG.md         # bitácora de desarrollo
-├── docker-compose.yml  # orquestación (esqueleto en CP-0)
+│   ├── profiles/       #   un .env por arquitectura
+│   └── common/         #   init del invitado y binario de prueba
+├── docker/             # Dockerfiles de los servicios
+├── tests/              # suite de tests (pytest)
+├── docker-compose.yml  # orquestación
 ├── .env.example        # plantilla de variables de entorno (sin secretos)
 └── .gitignore
 ```
 
 ## Stack
 
-Python 3.12 + FastAPI · Celery + Redis · PostgreSQL · QEMU full-system · Vue 3 + Vite ·
-Docker Compose · strace / tcpdump / inotify-tools. Versiones exactas propuestas en
-[`docs/DECISIONS.md`](docs/DECISIONS.md) (ADR-007 en adelante).
+Python 3.12 + FastAPI · Celery + Valkey 8 · PostgreSQL 16 · QEMU 10 full-system ·
+Buildroot · Vue 3 + Vite · nginx · Docker Compose · strace / tcpdump / inotify-tools ·
+INetSim + dnsmasq. Todas las versiones fijadas en los Dockerfiles y en `docker-compose.yml`.

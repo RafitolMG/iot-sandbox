@@ -94,6 +94,12 @@ evaluation/resultados/
 resultados/
 manifest.csv
 
+# --- Documentación de trabajo (solo local) --------------------------------
+# Registro de decisiones, bitácora de desarrollo y arnés de evaluación. Son notas de
+# trabajo del autor, no parte de la herramienta que se distribuye.
+docs/
+evaluation/
+
 # --- Memoria del TFM ------------------------------------------------------
 # Borradores de la memoria (.docx/.md) y comentarios del tutor. El agente SÍ debe
 # leer esta carpeta como contexto, pero queda FUERA de git a propósito.
