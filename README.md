@@ -1,80 +1,54 @@
 # IoT Malware Dynamic Analysis Sandbox
 
-Sandbox de **análisis dinámico de malware IoT multi-arquitectura**. Ejecuta binarios
-(ARM primero; luego MIPS/MIPSEL/x86_64) dentro de **QEMU full-system**, captura su
-comportamiento en tiempo real (syscalls, red, sistema de ficheros) y extrae
-**Indicadores de Compromiso (IoCs)**. Todo se opera desde una interfaz web y se
-despliega con **Docker Compose**.
+Sandbox de análisis dinámico para malware IoT. Ejecuta el binario dentro de QEMU en modo
+full-system —ARM, MIPS, MIPSEL o x86_64, detectando la arquitectura por la cabecera ELF—,
+captura lo que hace (syscalls, red, ficheros) y extrae indicadores de compromiso. Se opera
+desde el navegador y se levanta con Docker Compose.
 
-> Contribución práctica de un Trabajo Fin de Máster (TFM) en Ciberseguridad (UNIR):
-> *"Diseño e implementación de un sistema automatizado de análisis dinámico de malware
-> para entornos IoT multi-arquitectura"*.
+Es la parte práctica de un TFM en Ciberseguridad (UNIR): *Diseño e implementación de un
+sistema automatizado de análisis dinámico de malware para entornos IoT multi-arquitectura*.
 
-## Estado
+## Seguridad
 
-Flujo completo operativo: subir un binario desde la web → detección automática de la
-arquitectura por cabecera ELF → detonación en QEMU full-system → captura de telemetría
-(syscalls / red / ficheros) → extracción de IoCs → persistencia → **reporte forense en el
-navegador**. Todo se levanta con `docker compose up`.
-
-Cuatro arquitecturas soportadas (ARM, MIPS, MIPSEL, x86_64), red de detonación aislada con
-servicios simulados para que la muestra perciba conectividad sin alcanzar sistemas reales, y
-traza opcional en vivo por un segundo puerto serie.
-
-## Aviso de seguridad
-
-Se manejan binarios maliciosos reales. La muestra **siempre se detona dentro de QEMU
-full-system, nunca en el host ni en el contenedor que lo lanza**, y sobre una red sin
-encaminamiento hacia Internet. El binario nunca se ejecuta, se marca ejecutable ni se abre
-fuera del invitado.
-
-## Arquitectura (resumen)
-
-```
-navegador ─▶ Frontend (Vue 3) ─▶ API (FastAPI) ─┬─▶ PostgreSQL
-                                                 └─▶ Redis ─▶ Celery worker ─▶ QEMU full-system
-                                                                                (rootfs mínimo + telemetría)
-```
+Esto ejecuta malware real. La muestra se detona siempre dentro del invitado QEMU, nunca en
+el host ni en el contenedor que lo lanza, y sobre una red sin salida a Internet. El binario
+no se ejecuta, no se marca ejecutable y no se abre fuera del invitado: se inyecta en la
+imagen del rootfs con `debugfs`, sin montarla.
 
 ## Cómo se levanta
 
 ```bash
-cp .env.example .env      # ajustar credenciales locales (opcional; hay defaults)
-docker compose up --build # levanta db, valkey, api, worker y frontend
+docker compose up --build
 ```
 
-Cuando los 5 servicios estén `healthy` (`docker compose ps`), **abre la web en
-http://localhost:5173**: sube el binario benigno de prueba
-(el binario benigno de `emulation/common/testbin/`, horneado en cada rootfs), obsérvalo pasar de *En cola* →
-*Analizando* → *Completado* (auto-refresco) y pincha en la muestra para ver el reporte forense
-(cabecera + contadores + IoCs + pestañas Red/Syscalls/Ficheros).
+Cuando todo esté `healthy`, la web está en http://localhost:5173. Se sube un binario, se ve
+pasar de *En cola* a *Analizando* y a *Completado*, y al pinchar aparece el informe con los
+IoCs y las pestañas de red, syscalls y ficheros.
 
-> **Antes de la primera detonación** hay que generar el kernel y el rootfs de cada
-> arquitectura: `emulation/build_rootfs.sh <arm|mips|mipsel|x86_64>`. Son artefactos que no
-> se versionan (pesan gigas) y su construcción con Buildroot lleva unos 17 minutos por
-> arquitectura, una sola vez; varias pueden construirse en paralelo compartiendo la caché de
-> descargas. `docker compose up` levanta los servicios sin ellos, pero el análisis fallará
-> hasta que existan.
+Antes de la primera detonación hay que construir el kernel y el rootfs de cada arquitectura:
 
-Servicios y puertos declarados en `docker-compose.yml`:
+```bash
+emulation/build_rootfs.sh arm      # y mips, mipsel, x86_64
+```
 
-| Servicio  | Tecnología                        | Puerto host |
-|-----------|-----------------------------------|-------------|
-| frontend  | Vue 3 + Vite (servida por nginx)  | 5173        |
-| api       | FastAPI (Python 3.12)             | 8000        |
-| db        | PostgreSQL 16                     | 5432        |
-| valkey    | Valkey 8 (broker Celery, BSD)     | 6379        |
-| worker    | Celery + QEMU (DooD)              | —           |
-| inetsim   | INetSim 1.3.2 (servicios simulados) | —         |
-| simdns    | dnsmasq (DNS comodín)             | —           |
+Son unos 17 minutos por arquitectura, una sola vez. No están versionados porque pesan gigas.
+Se pueden construir varias a la vez, comparten la caché de descargas. Sin ellos los servicios
+levantan igual, pero el análisis falla.
 
-El frontend (nginx) reverse-proxya `/api` → `api:8000`, así que el navegador solo usa el
-puerto **5173** (SPA *same-origin*, sin CORS).
+| Servicio | Qué es | Puerto |
+|---|---|---|
+| frontend | SPA Vue 3 servida por nginx | 5173 |
+| api | FastAPI | 8000 |
+| db | PostgreSQL 16 | 5432 |
+| valkey | broker de Celery | 6379 |
+| worker | Celery, lanza QEMU por el socket de Docker | — |
+| inetsim | servicios de red simulados | — |
+| simdns | dnsmasq, resuelve cualquier dominio | — |
 
-`inetsim` y `simdns` no publican puertos al host: viven en la red `sandbox_sim`
-(`internal: true`), donde se detona la muestra y desde donde **no hay salida a Internet**.
-Todo el tráfico del invitado se redirige a ellos, de modo que el binario ve conectividad
-mientras el pcap conserva la IP y el puerto reales que pidió (CP-5, ADR-022).
+nginx proxya `/api` hacia la API, así que el navegador solo usa el 5173 y no hay CORS de por
+medio. `inetsim` y `simdns` no publican nada: viven en la red de detonación, que es
+`internal`, y allí es donde se redirige todo el tráfico del invitado. El pcap se captura
+dentro de QEMU, así que conserva la IP y el puerto que la muestra pidió de verdad.
 
 ## Tests
 
@@ -82,38 +56,15 @@ mientras el pcap conserva la IP y el puerto reales que pidió (CP-5, ADR-022).
 docker compose run --rm --no-deps -w /project worker pytest -p no:cacheprovider
 ```
 
-Cubren los dos módulos de lógica pura —autodetección de ISA por cabecera ELF y parseo de
-artefactos con extracción de IoCs—, que son donde han aparecido los defectos reales: bytes
-NUL en las trazas, la distinción entre «no es un ELF» y «ELF de arquitectura desconocida», y
-qué direcciones son infraestructura del banco de pruebas y no comportamiento de la muestra.
-Se ejecutan dentro del contenedor del worker porque es donde están las dependencias.
+Cubren la detección de arquitectura y el parseo de artefactos, que es donde han salido los
+fallos: bytes NUL en las trazas que tumbaban el análisis entero, confundir «no es un ELF»
+con «ELF de una arquitectura que no conozco», y qué direcciones son del propio banco de
+pruebas y no de la muestra. Van dentro del contenedor del worker porque ahí están las
+dependencias.
 
 ## Traza en vivo
 
-Por defecto los artefactos se extraen al terminar la detonación. Con `SANDBOX_LIVE_TRACE=1`
-el invitado va emitiendo el strace por un segundo puerto serie y el anfitrión lo recibe en
-`trace.live` mientras la muestra corre. Ralentiza al invitado, así que **no debe usarse en
-tandas de evaluación**: alteraría los recuentos. Detalle en ADR-023.
-
-## Estructura del repositorio
-
-```
-iot-sandbox/
-├── backend/            # API REST (FastAPI, Python 3.12)          [CP-1/CP-3 ✅]
-├── worker/             # Celery worker + orquestación de QEMU     [CP-2/CP-3 ✅]
-├── frontend/           # SPA Vue 3 + Vite
-├── emulation/          # Perfiles y scripts QEMU por ISA
-│   ├── profiles/       #   un .env por arquitectura
-│   └── common/         #   init del invitado y binario de prueba
-├── docker/             # Dockerfiles de los servicios
-├── tests/              # suite de tests (pytest)
-├── docker-compose.yml  # orquestación
-├── .env.example        # plantilla de variables de entorno (sin secretos)
-└── .gitignore
-```
-
-## Stack
-
-Python 3.12 + FastAPI · Celery + Valkey 8 · PostgreSQL 16 · QEMU 10 full-system ·
-Buildroot · Vue 3 + Vite · nginx · Docker Compose · strace / tcpdump / inotify-tools ·
-INetSim + dnsmasq. Todas las versiones fijadas en los Dockerfiles y en `docker-compose.yml`.
+Con `SANDBOX_LIVE_TRACE=1` el invitado va sacando el strace por un segundo puerto serie y
+aparece en `trace.live` mientras la muestra corre, en vez de esperar a que termine. Ojo: eso
+ralentiza al invitado, así que no conviene usarlo en tandas de evaluación porque falsea los
+recuentos.
