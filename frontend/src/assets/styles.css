@@ -114,28 +114,13 @@ h3 {
   font-size: 1.02rem;
   letter-spacing: 0.2px;
 }
+.brand > svg {
+  color: var(--accent);
+  flex: none;
+}
 .brand:hover {
   text-decoration: none;
 }
-.brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  border: 1px solid var(--border-strong);
-  font-size: 17px;
-}
-.brand-sub {
-  color: var(--text-faint);
-  font-weight: 400;
-  font-size: 0.82rem;
-}
-.topbar-spacer {
-  flex: 1;
-}
-
 .container {
   width: 100%;
   max-width: 1180px;
@@ -351,8 +336,8 @@ table.data tr.clickable {
   color: var(--text-faint);
 }
 .empty .big {
-  font-size: 30px;
-  margin-bottom: 8px;
+  color: var(--text-faint);
+  margin-bottom: 10px;
 }
 
 .alert {
@@ -554,9 +539,6 @@ table.data tr.clickable {
   }
   .topbar-inner {
     padding: 12px 14px;
-  }
-  .brand-sub {
-    display: none;
   }
 }
 

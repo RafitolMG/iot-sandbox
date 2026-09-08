@@ -3,6 +3,7 @@
 // sample is queued/running so the analyst sees status transitions live.
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import UploadForm from '../components/UploadForm.vue'
+import AppIcon from '../components/AppIcon.vue'
 import SampleTable from '../components/SampleTable.vue'
 import { listSamples } from '../api'
 import { isPending } from '../format'
@@ -76,7 +77,7 @@ onUnmounted(() => clearTimeout(timer))
       </div>
 
       <div v-else-if="!samples.length" class="empty">
-        <div class="big">📭</div>
+        <AppIcon name="inbox" :size="34" class="big" />
         <p>Aún no hay muestras. Sube un binario para lanzar el primer análisis.</p>
       </div>
 

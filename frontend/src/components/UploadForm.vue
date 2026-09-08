@@ -148,11 +148,6 @@ function clearFileKeepResult() {
         (estado: {{ result.status }}); no se ha vuelto a encolar.
       </div>
       <div v-if="error" class="alert alert-err">{{ error }}</div>
-
-      <p class="faint" style="font-size: 0.8rem; margin: 0">
-        La muestra se trata como no confiable: se almacena por su
-        <code>sha256</code> y se detona dentro de QEMU; nunca se ejecuta en el host.
-      </p>
     </div>
   </div>
 </template>

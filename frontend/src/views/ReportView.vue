@@ -4,6 +4,7 @@
 // Polls while the analysis is queued/running; handles 404 and failed states.
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import AppIcon from '../components/AppIcon.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { getSample, ApiError } from '../api'
 import { humanBytes, fmtDate, fmtDuration, isPending } from '../format'
@@ -98,7 +99,7 @@ onUnmounted(() => clearTimeout(timer))
       <p class="muted" style="margin-top: 10px">Cargando reporte…</p>
     </div>
     <div v-else-if="notFound" class="empty card">
-      <div class="big">🔍</div>
+      <AppIcon name="search-off" :size="34" class="big" />
       <p>No existe ninguna muestra con id <code>#{{ id }}</code>.</p>
       <RouterLink to="/">Volver al listado</RouterLink>
     </div>
