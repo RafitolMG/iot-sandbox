@@ -68,3 +68,9 @@ Con `SANDBOX_LIVE_TRACE=1` el invitado va sacando el strace por un segundo puert
 aparece en `trace.live` mientras la muestra corre, en vez de esperar a que termine. Ojo: eso
 ralentiza al invitado, así que no conviene usarlo en tandas de evaluación porque falsea los
 recuentos.
+
+## Licencia
+
+MIT, ver [LICENSE](LICENSE). QEMU, INetSim, dnsmasq y Buildroot son GPL y se usan como
+programas aparte dentro de sus contenedores: aquí solo hay configuración y Dockerfiles
+propios, nada de su código.
